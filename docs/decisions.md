@@ -239,3 +239,47 @@ Each entry records what was decided, the options considered, the choice, and why
 - **Chosen:** scripts and ingestion authenticate with a Jenkins API token (`JENKINS_API_TOKEN`
   in `.env`), not the admin password.
 - **Why:** a token can be revoked on its own, and it needs no CSRF crumb for POST requests.
+
+## D-026: Raw landing layer
+
+- **Date:** 2026-10-22
+- **Options considered:** raw JSON files plus DuckDB, or DuckDB only.
+- **Chosen:** both.
+  - Each build and its test report are saved unchanged under `data/raw/jenkins/<job>/`
+    (git-ignored), then loaded into DuckDB (`data/noisefloor.duckdb`), schema `raw`.
+  - Tables: `raw.jenkins_builds` (one row per build), `raw.jenkins_test_cases` (one row per
+    test execution), `raw.ingestion_runs` (one row per run).
+  - `noisefloor reload-raw` rebuilds the raw tables from the files without asking Jenkins.
+  - The raw tables declare no primary keys. Uniqueness is checked by the data-quality tests
+    in Phase 5.
+- **Why:** it's the standard landing-zone pattern. A bad load can be replayed from disk, and the
+  raw layer accepts whatever the source sends.
+
+## D-027: Incremental and idempotent ingestion
+
+- **Date:** 2026-10-22
+- **Chosen:**
+  - Watermark = the highest build number already loaded. Only newer, finished builds are
+    fetched, and loading stops at the first build still running.
+  - Each build is written in one transaction: delete its rows, insert them again.
+- **Example:** run 1 loaded builds #2 to #9. Run 2, straight after, loaded 0 builds and waited on
+  #10, which was still running. Row counts didn't change.
+- **Why:** without the stop rule, a running build could be skipped forever once a later build
+  moved the watermark past it.
+
+## D-028: What the raw layer keeps
+
+- **Date:** 2026-10-22
+- **Chosen:** values exactly as Jenkins reports them: real UTC start times and Jenkins' own test
+  statuses (PASSED, FAILED, SKIPPED, and also FIXED and REGRESSED if they appear). The
+  status mapping (D-016) and the 30-day time offset (D-009) are applied in the Phase 3 models,
+  as separate, labelled columns.
+- **Why:** the raw layer stays an exact, checkable copy of the source.
+
+## D-029: Python tooling on the development machine
+
+- **Date:** 2026-10-22
+- **Chosen:** uv 0.12.23 installed for the current user with the system Python. Package
+  downloads run outside the command sandbox, one approved command at a time, the same as
+  D-023. Versions are locked in `uv.lock`.
+- **Why:** uv inside the project's own environment would be removed by `uv sync`.
