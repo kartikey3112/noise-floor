@@ -6,7 +6,8 @@ from the files in this folder, so a fresh start needs no clicking through setup 
 | File | What it does |
 |---|---|
 | `Dockerfile` | Jenkins LTS plus uv and Python 3.14, with the files below baked in |
-| `plugins.txt` | Plugins to install |
+| `plugins.txt` | The plugins we chose |
+| `plugins.lock.txt` | Every installed plugin, dependencies included, pinned to an exact version. The image installs from this file |
 | `casc.yaml` | Configuration as Code: the admin user, one executor, and the job |
 | `jobs/crashcart_tests.groovy` | Creates the `crashcart-tests` job, which takes a `COMMIT_SHA` parameter |
 | `Jenkinsfile` | The job's steps: checkout, install, unit tests, start the backend, API tests, demo tests, publish JUnit |
@@ -21,6 +22,16 @@ docker compose up -d --build
 ```
 
 Open http://localhost:8080 and sign in with the user and password from `.env`.
+
+## Updating plugins
+
+Edit `plugins.txt`, install from it once, and then write the versions Jenkins ends up with
+back into `plugins.lock.txt`:
+
+```bash
+curl -sg -u "$JENKINS_ADMIN_USER:$JENKINS_ADMIN_PASSWORD" \
+  "http://localhost:8080/pluginManager/api/json?tree=plugins[shortName,version]"
+```
 
 ## Why one executor
 

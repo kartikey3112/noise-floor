@@ -199,4 +199,23 @@ Each entry records what was decided, the options considered, the choice, and why
     `junit_suite_name` option. This puts the D-005 suite straight into the Jenkins test report.
 - **Why:** a fresh start is fully repeatable from the README. One executor avoids port clashes
   and keeps timings comparable.
-- **Open:** plugin versions aren't pinned yet. Pin them after the first successful start.
+- **Plugin versions:** pinned after the first successful start. `plugins.lock.txt` lists all 69
+  plugins with exact versions, and the image installs from it.
+
+## D-022: Noisefloor repository
+
+- **Date:** 2026-10-22
+- **Chosen:** a public GitHub repository, `kartikey3112/noise-floor`, with `main` as the default
+  branch.
+- **Why:** on a free account, GitHub Pages only hosts sites from public repositories, and
+  reviewers need to be able to read the code.
+
+## D-023: Downloads during Docker builds
+
+- **Date:** 2026-10-22
+- **Context:** the command sandbox on the development machine blocked the image build from
+  reaching `ghcr.io`.
+- **Chosen:** run Docker build and start commands outside the sandbox, one approved command at
+  a time.
+- **Why:** the build has to download from several registries (Docker Hub, ghcr.io, Python
+  builds, Jenkins plugins).
