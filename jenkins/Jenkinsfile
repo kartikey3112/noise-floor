@@ -1,0 +1,107 @@
+// Runs CrashCart's backend unit tests, API tests and demo tests on one commit of the
+// noisefloor-demo branch, then publishes the JUnit results that Noisefloor ingests.
+//
+// Each suite writes its own JUnit file with its own suite name (unit, api, demo). Noisefloor
+// uses that name as the "suite" part of a test's identity (suite, classname, test_name).
+// No retries: every execution is recorded exactly once.
+pipeline {
+    agent any
+    options {
+        disableConcurrentBuilds()
+        skipDefaultCheckout()
+        timeout(time: 30, unit: 'MINUTES')
+    }
+    environment {
+        REPO_URL = 'https://github.com/kartikey3112/crash-cart.git'
+        BRANCH = 'noisefloor-demo'
+        PY = '.venv/bin/python'
+        // Throwaway values for the backend this job starts. Never real secrets.
+        TEST_TOKEN = 'jenkins-test-token'
+        ADMIN_PASSWORD = 'jenkins-admin-password'
+        API_BASE_URL = 'http://127.0.0.1:8000'
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scmGit(
+                    branches: [[name: params.COMMIT_SHA ?: "*/${env.BRANCH}"]],
+                    userRemoteConfigs: [[url: env.REPO_URL]])
+                script {
+                    def commit = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                    currentBuild.description = commit  // easy to read back from the API
+                }
+            }
+        }
+        stage('Install') {
+            steps {
+                sh '''
+                    rm -rf .venv reports backend.pid
+                    mkdir -p reports
+                    uv venv --python 3.14 .venv
+                    uv pip install --python .venv \
+                        -r store/backend/requirements-dev.txt -r tests/requirements.txt
+                '''
+            }
+        }
+        stage('Unit tests') {
+            steps {
+                // Exit code 1 means some tests failed, which the JUnit file records. Anything
+                // higher means pytest itself could not run, so the build should fail.
+                sh '''
+                    cd store/backend
+                    status=0
+                    ../../$PY -m pytest -p no:cacheprovider -o junit_suite_name=unit \
+                        --junitxml=../../reports/junit-unit.xml || status=$?
+                    [ "$status" -le 1 ]
+                '''
+            }
+        }
+        stage('Start backend') {
+            steps {
+                // Settings only for this step, so they can't leak into the unit tests.
+                // JENKINS_NODE_COOKIE stops Jenkins from killing the server when the step ends.
+                withEnv(['CRASHCART_DATABASE_URL=sqlite:///./jenkins.db',
+                         "CRASHCART_TEST_TOKEN=${env.TEST_TOKEN}",
+                         "CRASHCART_ADMIN_PASSWORD=${env.ADMIN_PASSWORD}",
+                         'JENKINS_NODE_COOKIE=dontKillMe']) {
+                    sh '''
+                        cd store/backend
+                        nohup ../../$PY -m uvicorn app.main:app --port 8000 \
+                            > ../../reports/backend.log 2>&1 &
+                        echo $! > ../../backend.pid
+                    '''
+                }
+            }
+        }
+        stage('API tests') {
+            steps {
+                // The shared test setup waits for /health and resets the store once.
+                sh '''
+                    status=0
+                    $PY -m pytest tests/api -n 4 -o junit_suite_name=api \
+                        --junitxml=reports/junit-api.xml || status=$?
+                    [ "$status" -le 1 ]
+                '''
+            }
+        }
+        stage('Demo tests') {
+            steps {
+                // BUILD_NUMBER (set by Jenkins) seeds the demo tests' outcomes.
+                sh '''
+                    status=0
+                    NOISEFLOOR_DEMO=1 RESET_BEFORE_RUN=false \
+                        $PY -m pytest tests/noisefloor_demo -o junit_suite_name=demo \
+                        --junitxml=reports/junit-demo.xml || status=$?
+                    [ "$status" -le 1 ]
+                '''
+            }
+        }
+    }
+    post {
+        always {
+            sh 'if [ -f backend.pid ]; then kill "$(cat backend.pid)" || true; fi'
+            junit testResults: 'reports/junit-*.xml', allowEmptyResults: true
+            archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
+        }
+    }
+}

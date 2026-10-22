@@ -1,0 +1,15 @@
+# Local Jenkins for Noisefloor. Start:  docker compose up -d --build
+services:
+  jenkins:
+    build: ./jenkins
+    image: noisefloor-jenkins:local
+    container_name: noisefloor-jenkins
+    ports:
+      - "127.0.0.1:8080:8080"  # reachable from this machine only
+    env_file: .env
+    volumes:
+      - jenkins_home:/var/jenkins_home  # build history lives here and survives restarts
+    restart: unless-stopped
+
+volumes:
+  jenkins_home:

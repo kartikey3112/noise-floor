@@ -1,0 +1,2 @@
+# Unix line endings everywhere: these files run inside Linux containers.
+* text=auto eol=lf

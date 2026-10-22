@@ -1,0 +1,20 @@
+# Secrets: never commit real env files
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Local data
+*.duckdb
+*.duckdb.wal
+data/
+
+# Editors
+.idea/
+.vscode/

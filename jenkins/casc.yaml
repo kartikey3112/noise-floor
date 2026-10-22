@@ -1,0 +1,23 @@
+# Jenkins Configuration as Code: the whole controller setup, read at every start.
+# ${...} values come from environment variables (see .env.example).
+jenkins:
+  systemMessage: "Noisefloor: local Jenkins that builds CrashCart's noisefloor-demo branch."
+  # One build at a time: each build starts its own backend on port 8000.
+  numExecutors: 1
+  mode: NORMAL
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_USER}"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+unclassified:
+  location:
+    url: "http://localhost:8080/"
+
+jobs:
+  - file: /opt/noisefloor/jobs/crashcart_tests.groovy
