@@ -259,4 +259,3 @@ noise-floor/
 - **The report is rebuilt locally.** GitHub Actions can't reach a local Jenkins, so the site is
   built on the machine running Jenkins, then committed, and published by Actions.
 
-Every choice above, and the alternatives it beat, is in [docs/decisions.md](docs/decisions.md).
