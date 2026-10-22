@@ -449,3 +449,21 @@ Each entry records what was decided, the options considered, the choice, and why
   Generating the section is the only way that stays true after a re-run.
 - **Check:** every report query has a complete sort order. Rebuilding every model and then the
   report gives byte-identical `site/index.html` and `README.md`.
+
+## D-041: CI on GitHub Actions
+
+- **Date:** 2026-10-22
+- **Chosen:** `.github/workflows/ci.yml` runs on every push to `main`, on pull requests, and
+  by hand. It installs both environments from their lock files (`uv sync --locked`), runs
+  ruff, runs pytest, and runs `dbt build` on an empty warehouse. That still runs every model,
+  every metric unit test and every data-quality check. Freshness is left out, because an empty
+  warehouse is never fresh. Free on a public repository.
+- **Why:** GitHub can't reach the local Jenkins (D-038), but everything except ingestion can
+  still be checked on every change.
+
+## D-042: Link from CrashCart to Noisefloor
+
+- **Date:** 2026-10-22
+- **Chosen:** a short section in CrashCart's `main` README pointing to Noisefloor and its live
+  report. It's a docs-only change, which CrashCart's CI ignores (`paths-ignore: "**.md"`).
+- **Why:** the two portfolio projects point at each other.

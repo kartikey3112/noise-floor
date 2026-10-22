@@ -1,0 +1,52 @@
+# CI: lint, Python tests, and the whole dbt project (models, unit tests, data-quality checks).
+# GitHub can't reach the local Jenkins, so dbt builds on an empty warehouse here. That still
+# compiles and runs every model, runs every metric's unit tests on their hand-made data, and
+# runs every data-quality check (which pass on empty tables).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint, tests and dbt build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Install uv (the same pinned version as the Jenkins image)
+        run: pip install uv==0.12.23
+
+      - name: Install both environments exactly as locked
+        # --locked fails if a lock file is out of date with its pyproject.toml.
+        # The dbt environment's Python 3.13 is downloaded by uv.
+        run: |
+          uv sync --locked
+          uv sync --locked --project transform
+
+      - name: Lint and format check (ruff)
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Python tests
+        run: uv run pytest
+
+      - name: dbt build on an empty warehouse
+        env:
+          NOISEFLOOR_WAREHOUSE: ci.duckdb
+        run: |
+          # The raw tables ingestion would normally create, empty.
+          uv run python -c "from pathlib import Path; from noisefloor.raw_store import RawStore; RawStore.open(Path('ci.duckdb')).close()"
+          uv run --project transform dbt build --project-dir transform --profiles-dir transform

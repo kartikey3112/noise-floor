@@ -1,5 +1,7 @@
 # Noisefloor
 
+[![CI](https://github.com/kartikey3112/noise-floor/actions/workflows/ci.yml/badge.svg)](https://github.com/kartikey3112/noise-floor/actions/workflows/ci.yml)
+
 **A data pipeline that turns Jenkins build history into a star schema, to find flaky tests and
 tests that got slower.**
 
@@ -180,6 +182,9 @@ the next. The real time is kept alongside in `*_real_utc` columns, and the repor
   Each was proven on a deliberately broken copy of the warehouse.
 - **Python tests** (pytest) for parsing, incremental and idempotent ingestion, the pipeline
   runner, and the report's data embedding. Linted and formatted with ruff.
+- **CI on every push** ([`ci.yml`](.github/workflows/ci.yml)): lint, the Python tests, and a
+  full `dbt build` (every model, unit test and data-quality check) on an empty warehouse, since
+  GitHub can't reach the local Jenkins.
 
 ## Run it yourself
 
