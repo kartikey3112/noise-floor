@@ -10,6 +10,9 @@ from noisefloor.jenkins_client import JenkinsClient
 from noisefloor.landing import Landing
 from noisefloor.pipeline import Step, dbt, run_steps
 from noisefloor.raw_store import RawStore
+from noisefloor.report import build_site
+
+SITE_DIR = Path("site")
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
@@ -52,6 +55,17 @@ def cmd_transform(args: argparse.Namespace) -> int:
     return dbt("build", warehouse=warehouse)
 
 
+def cmd_report(args: argparse.Namespace) -> int:
+    warehouse = load_settings(Path(args.env_file)).warehouse_path
+    overview = build_site(warehouse, SITE_DIR)
+    print(
+        f"Wrote {SITE_DIR / 'index.html'}: {overview['flaky_tests']} flaky tests, "
+        f"{overview['sustained_regressions']} sustained regressions, "
+        f"answer key {overview['answer_key_matched']}/{overview['answer_key_total']}."
+    )
+    return 0
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     warehouse = load_settings(Path(args.env_file)).warehouse_path
     return run_steps(
@@ -65,6 +79,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 "check data freshness (dbt source freshness)",
                 lambda: dbt("source", "freshness", warehouse=warehouse),
             ),
+            Step("build the report site", lambda: cmd_report(args)),
         ]
     )
 
@@ -83,7 +98,10 @@ def main(argv: list[str] | None = None) -> int:
         "transform", help="build the models and run every check (dbt build)"
     ).set_defaults(handler=cmd_transform)
     commands.add_parser(
-        "run", help="the whole pipeline: ingest, transform and check, then data freshness"
+        "report", help="build the static report site in site/ from the warehouse"
+    ).set_defaults(handler=cmd_report)
+    commands.add_parser(
+        "run", help="the whole pipeline: ingest, transform and check, freshness, report"
     ).set_defaults(handler=cmd_run)
     args = parser.parse_args(argv)
     # Print each line as it's written, so our messages and dbt's output appear in order.

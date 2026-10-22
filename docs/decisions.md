@@ -409,3 +409,26 @@ Each entry records what was decided, the options considered, the choice, and why
   pipeline.
 - **Why:** one command, the same on every OS. A non-zero exit code makes it easy to schedule
   or wrap.
+
+## D-039: The report
+
+- **Date:** 2026-10-22
+- **Chosen:**
+  - One static page, written by `noisefloor report` (also step 4 of `noisefloor run`) into
+    `site/`, with every number embedded as JSON from the metric tables. No number is typed by
+    hand.
+  - **Sections:** summary tiles, flaky tests with their 30-day flip rate and a trend chart,
+    runtime regressions (sustained first, spikes listed separately) with a duration chart,
+    and the answer-key scorecard.
+  - **Charts:** Chart.js 4.5.1 from jsDelivr, pinned with an integrity hash, as in CrashCart.
+    Every chart has a table with the same numbers.
+  - **Colours:** colours follow the test in a fixed order, checked with a colour-vision
+    validator in light and dark mode. Three light-mode colours are below 3:1 contrast, which
+    the tables cover. Light and dark themes follow the system setting.
+  - **Flip-rate chart:** skips days whose window holds fewer than 10 pairs of runs, because
+    one flip in a single pair would read as 100%. The table still lists every day.
+  - **Publishing:** `site/` is committed. `.github/workflows/pages.yml` publishes it to
+    GitHub Pages on pushes that change it. One manual step: Settings > Pages > Source:
+    GitHub Actions.
+- **Why:** it's free, opens with one click, needs no server, and every number on it can be
+  traced to a query.

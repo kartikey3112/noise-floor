@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Noisefloor report</title>
+  <meta name="description" content="Flaky tests and runtime regressions found in CrashCart's Jenkins build history.">
+  <link rel="stylesheet" href="report.css">
+  <!-- Chart.js pinned to one version, with a hash so a changed file is refused. -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"
+    integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ"
+    crossorigin="anonymous" defer></script>
+  <script src="report.js" defer></script>
+</head>
+<body>
+  <main class="page">
+    <header class="intro">
+      <h1>Noisefloor</h1>
+      <p class="lede">Flaky tests and runtime regressions in
+        <a href="https://github.com/kartikey3112/crash-cart/tree/noisefloor-demo">CrashCart</a>'s
+        Jenkins build history, found by a data pipeline (Jenkins → DuckDB → dbt).</p>
+      <p class="meta" id="meta"></p>
+    </header>
+
+    <section aria-labelledby="summary-title">
+      <h2 id="summary-title" class="visually-hidden">Summary</h2>
+      <div class="tiles" id="tiles"></div>
+    </section>
+
+    <section aria-labelledby="flaky-title">
+      <h2 id="flaky-title">Flaky tests</h2>
+      <p class="explain">A test is <strong>flaky</strong> when it both passed and failed on the
+        <em>same commit</em>: the code didn't change, the result did. The <strong>flip rate</strong>
+        is the share of back-to-back runs whose result switched between pass and fail, over the
+        last 30 days.</p>
+      <div class="card">
+        <h3>30-day flip rate over time</h3>
+        <p class="chart-note">Each point is the flip rate over the 30 days ending that day.
+          Days with fewer than 10 pairs of runs in the window aren't plotted; the table lists them.</p>
+        <div class="chart-box"><canvas id="flip-chart" aria-label="Line chart of the 30-day flip rate of each flaky test over time" role="img"></canvas></div>
+        <details>
+          <summary>Show the numbers behind this chart</summary>
+          <div class="table-wrap"><table id="flip-table"></table></div>
+        </details>
+      </div>
+      <div class="table-wrap"><table id="flaky-table"></table></div>
+    </section>
+
+    <section aria-labelledby="regression-title">
+      <h2 id="regression-title">Runtime regressions</h2>
+      <p class="explain">A passed run is a <strong>regression</strong> when it takes more than
+        1.5× the median of the test's previous 20 passed runs <em>and</em> at least 0.5 s longer.
+        Three or more such runs in a row are a <strong>sustained</strong> regression; fewer are a
+        <strong>spike</strong>, usually timing noise.</p>
+      <div class="card">
+        <h3>Duration per build, demo tests that slowed down</h3>
+        <p class="chart-note">Vertical lines mark the first build of each commit.</p>
+        <div class="chart-box"><canvas id="duration-chart" aria-label="Line chart of test duration in seconds per build, for the demo tests that slowed down" role="img"></canvas></div>
+        <details>
+          <summary>Show the numbers behind this chart</summary>
+          <div class="table-wrap"><table id="duration-table"></table></div>
+        </details>
+      </div>
+      <h3>Sustained regressions</h3>
+      <div class="table-wrap"><table id="sustained-table"></table></div>
+      <details class="spikes">
+        <summary id="spikes-summary">Runtime spikes</summary>
+        <div class="table-wrap"><table id="spikes-table"></table></div>
+      </details>
+    </section>
+
+    <section aria-labelledby="key-title">
+      <h2 id="key-title">Checked against the answer key</h2>
+      <p class="explain">The demo tests were written to be flaky or slow on purpose, each with a
+        known failure rate or slowdown commit (<a href="https://github.com/kartikey3112/crash-cart/blob/noisefloor-demo/tests/noisefloor_demo/expected.json">expected.json</a>).
+        This table compares what each was designed to do with what the metrics found.</p>
+      <div class="table-wrap"><table id="key-table"></table></div>
+    </section>
+
+    <footer class="notes">
+      <h2>About this data</h2>
+      <ul>
+        <li><strong>Source:</strong> a local Jenkins in Docker building CrashCart's
+          <code>noisefloor-demo</code> branch: <span id="suite-counts">its unit, API and demo
+          tests</span> per build, with no retries.</li>
+        <li><strong>Demo tests are synthetic.</strong> They're flaky or slow by design, and seeded
+          from the build number so results can be rebuilt exactly. The unit and API tests are real.</li>
+        <li><strong>Simulated time.</strong> Every build ran on one day. To show the 30-day window
+          working, the newest build keeps its real time and each earlier build is placed 18 hours
+          before the next. Real times are kept in the data alongside.</li>
+        <li>Every number on this page is generated by the pipeline. Source:
+          <a href="https://github.com/kartikey3112/noise-floor">github.com/kartikey3112/noise-floor</a>.</li>
+      </ul>
+    </footer>
+  </main>
+
+  <script id="report-data" type="application/json">__REPORT_DATA__</script>
+</body>
+</html>
