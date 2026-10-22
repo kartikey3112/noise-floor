@@ -57,9 +57,10 @@ def cmd_transform(args: argparse.Namespace) -> int:
 
 def cmd_report(args: argparse.Namespace) -> int:
     warehouse = load_settings(Path(args.env_file)).warehouse_path
-    overview = build_site(warehouse, SITE_DIR)
+    overview = build_site(warehouse, SITE_DIR, readme=Path("README.md"))
     print(
-        f"Wrote {SITE_DIR / 'index.html'}: {overview['flaky_tests']} flaky tests, "
+        f"Wrote {SITE_DIR / 'index.html'} and the README results: "
+        f"{overview['flaky_tests']} flaky tests, "
         f"{overview['sustained_regressions']} sustained regressions, "
         f"answer key {overview['answer_key_matched']}/{overview['answer_key_total']}."
     )

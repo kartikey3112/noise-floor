@@ -82,7 +82,7 @@ def collect(db: duckdb.DuckDBPyConnection) -> dict:
                round(f.flip_rate, 3) as flip_rate, f.flips_in_window, f.pairs_in_window
         from metrics.mart_flip_rate_daily as f
         where f.test_key in ({", ".join(f"'{k}'" for k in flaky_keys) or "''"})
-        order by f.calendar_date
+        order by f.calendar_date, f.test_key
         """,
     )
 
@@ -115,7 +115,7 @@ def collect(db: duckdb.DuckDBPyConnection) -> dict:
         join marts.dim_build as b using (build_key)
         where f.outcome = 'pass'
           and f.test_key in ({", ".join(f"'{k}'" for k in slow_keys) or "''"})
-        order by b.build_number
+        order by b.build_number, f.test_key
         """,
     )
     commits = _rows(
@@ -160,16 +160,111 @@ def collect(db: duckdb.DuckDBPyConnection) -> dict:
     }
 
 
+RESULTS_START = "<!-- results:start (written by `noisefloor report`; don't edit by hand) -->"
+RESULTS_END = "<!-- results:end -->"
+SUITE_ORDER = {"unit": 0, "api": 1, "demo": 2}
+SUITE_NAMES = {"unit": "unit", "api": "API", "demo": "demo"}
+
+
+def _pct(value: float | None) -> str:
+    return "–" if value is None else f"{round(value * 100)}%"
+
+
+def _table(header: list[str], rows: list[list[str]]) -> str:
+    lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    lines += ["| " + " | ".join(row) + " |" for row in rows]
+    return "\n".join(lines)
+
+
+def _designed(row: dict) -> str:
+    if row["designed_as"] == "flaky":
+        return f"flaky, fails {_pct(row['designed_fail_rate'])} of runs"
+    if row["designed_as"] == "slows_down":
+        return f"slows down at `{row['designed_commit']}`"
+    return row["designed_as"]
+
+
+def _found(row: dict) -> str:
+    if row["is_flaky"]:
+        return (
+            f"flaky on {row['divergent_commits']} commits, fails {_pct(row['observed_fail_rate'])}"
+        )
+    if row["has_regressed"]:
+        return f"slowed down at `{row['found_commit']}`"
+    return "stable"
+
+
+def results_markdown(data: dict) -> str:
+    """The README's results section, from the same data as the site."""
+    o = data["overview"]
+    suites = sorted(data["suites"], key=lambda s: SUITE_ORDER.get(s["suite_name"], 99))
+    suite_text = ", ".join(f"{s['tests']} {SUITE_NAMES.get(s['suite_name'], s['suite_name'])}"
+                           for s in suites)  # fmt: skip
+    sustained = [r for r in data["regressions"] if r["episode_kind"] == "sustained"]
+    parts = [
+        f"**Data:** {o['builds']} builds of {o['commits']} commits · {o['tests']} tests "
+        f"({suite_text}) · {o['executions']:,} test executions · simulated "
+        f"{o['simulated_from']} to {o['simulated_to']}.",
+        _table(
+            ["Flaky tests", "Sustained regressions", "Runtime spikes", "Answer key"],
+            [[
+                f"**{o['flaky_tests']}** of {o['tests']}",
+                f"**{o['sustained_regressions']}** in {o['regressed_tests']} tests",
+                f"**{o['runtime_spikes']}** (one-off slow runs)",
+                f"**{o['answer_key_matched']} of {o['answer_key_total']}** demo tests "
+                "detected as designed",
+            ]],
+        ),
+        "**Flaky tests**, by 30-day flip rate:",
+        _table(
+            ["Test", "Suite", "Flip rate (30 d)", "Fail rate", "Commits with pass and fail"],
+            [[f"`{r['test_name']}`", r["suite_name"],
+              f"{_pct(r['flip_rate_30d'])} ({r['flips_30d']}/{r['pairs_30d']})",
+              f"{_pct(r['fail_rate'])} ({r['fails']}/{r['runs']})",
+              f"{r['divergent_commits']} of {r['commits_run_on']}"] for r in data["flaky"]],
+        ),
+        "**Sustained regressions** (3 or more slow runs in a row):",
+        _table(
+            ["Test", "Suite", "Started", "Normal → then", "Slow runs in a row"],
+            [[f"`{r['test_name']}`", r["suite_name"],
+              f"build #{r['onset_build']}, commit `{r['onset_commit']}`",
+              f"{r['baseline_s']:.2f} s → {r['onset_s']:.2f} s ({r['ratio']}×)",
+              str(r["flagged_runs"])] for r in sustained],
+        ),
+        "**Answer key** (demo tests only):",
+        _table(
+            ["Demo test", "Designed as", "Found", "Match"],
+            [[f"`{r['test_name']}`", _designed(r), _found(r),
+              "✓" if r["detected_as_designed"] else "✗"] for r in data["answer_key"]],
+        ),
+    ]  # fmt: skip
+    return "\n\n".join(parts)
+
+
+def update_readme(readme: Path, data: dict) -> bool:
+    """Replace the text between the results markers. Returns False if the markers are missing."""
+    text = readme.read_text(encoding="utf-8")
+    start, end = text.find(RESULTS_START), text.find(RESULTS_END)
+    if start < 0 or end < start:
+        return False
+    block = f"{RESULTS_START}\n\n{results_markdown(data)}\n\n"
+    readme.write_text(text[:start] + block + text[end:], encoding="utf-8", newline="\n")
+    return True
+
+
 def embed(html: str, data: dict) -> str:
     # "</" inside the JSON would end the <script> tag early, so it's escaped.
     payload = json.dumps(data, separators=(",", ":"), default=str).replace("</", "<\\/")
     return html.replace(DATA_PLACEHOLDER, payload)
 
 
-def build_site(warehouse: Path, out_dir: Path) -> dict:
-    """Write out_dir/index.html (data embedded) and its assets. Returns the overview numbers."""
+def build_site(warehouse: Path, out_dir: Path, readme: Path | None = None) -> dict:
+    """Write out_dir/index.html (data embedded) and its assets, and refresh the README's
+    results section if a README is given. Returns the overview numbers."""
     with duckdb.connect(str(warehouse), read_only=True) as db:
         data = collect(db)
+    if readme is not None and readme.exists():
+        update_readme(readme, data)
     out_dir.mkdir(parents=True, exist_ok=True)
     html = (TEMPLATE / "index.html").read_text(encoding="utf-8")
     (out_dir / "index.html").write_text(embed(html, data), encoding="utf-8", newline="\n")

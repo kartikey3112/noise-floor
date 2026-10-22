@@ -432,3 +432,20 @@ Each entry records what was decided, the options considered, the choice, and why
     GitHub Actions.
 - **Why:** it's free, opens with one click, needs no server, and every number on it can be
   traced to a query.
+- **Published 2026-10-22** at https://kartikey3112.github.io/noise-floor/ after Pages was set
+  to "GitHub Actions". The first push-triggered run failed only because Pages wasn't enabled
+  yet. The manual re-run succeeded.
+
+## D-040: README as a portfolio piece
+
+- **Date:** 2026-10-22
+- **Chosen:**
+  - The README's results section sits between two marker comments and is rewritten by
+    `noisefloor report` from the same data as the site, so no result in it is typed by hand.
+  - **Sections:** why, the metrics with examples, results, architecture (Mermaid), data model,
+    quality, how to run it, repository map, honest limits.
+  - A screenshot of the report (`docs/images/report-overview.png`) heads the page.
+- **Why:** the quality bar asks for every README number to be reproducible from the pipeline.
+  Generating the section is the only way that stays true after a re-run.
+- **Check:** every report query has a complete sort order. Rebuilding every model and then the
+  report gives byte-identical `site/index.html` and `README.md`.
