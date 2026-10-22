@@ -1,0 +1,15 @@
+version: 2
+
+seeds:
+  - name: demo_expected_tests
+    description: >
+      The demo answer key: what each CrashCart demo test was designed to do. Copied from
+      tests/noisefloor_demo/expected.json on CrashCart's noisefloor-demo branch by
+      scripts/export_demo_seeds.py.
+  - name: demo_commits
+    description: >
+      The demo commits on CrashCart's noisefloor-demo branch, oldest first, with their subjects.
+      Written by scripts/export_demo_seeds.py.
+    columns:
+      - name: commit_sha
+        data_tests: [unique, not_null]

@@ -1,0 +1,12 @@
+suite_name,class_name,test_name,designed_as,cause,designed_fail_rate,baseline_s,slowed_s,slows_down_at_commit_subject
+demo,tests.noisefloor_demo.test_demo_flaky,test_demo_background_export_finishes_before_check,flaky,timing race: a fixed 50 ms sleep instead of waiting for the background job,0.2,,,
+demo,tests.noisefloor_demo.test_demo_flaky,test_demo_saving_a_cart_keeps_it_for_later,stable,"leaks state into a module-level cache, but always passes itself",0.0,,,
+demo,tests.noisefloor_demo.test_demo_flaky,test_demo_new_session_has_no_saved_carts,flaky,order dependence: fails when the cart-saving test ran before it,0.5,,,
+demo,tests.noisefloor_demo.test_demo_flaky,test_demo_bulk_discount_for_random_quantity,flaky,"random data: an off-by-one at the 10, 15 and 20 item tiers (3 of 20 quantities)",0.15,,,
+demo,tests.noisefloor_demo.test_demo_flaky,test_demo_price_service_answers_within_timeout,flaky,slow dependency: the stub service sometimes answers after the 150 ms timeout,0.1,,,
+demo,tests.noisefloor_demo.test_demo_flaky,test_demo_order_date_uses_store_time_zone,flaky,"time zones: the date is taken in UTC, which is wrong from 18:30 UTC (330 of 1440 minutes)",0.229,,,
+demo,tests.noisefloor_demo.test_demo_flaky,test_demo_shipping_label_keeps_full_name,flaky,random data: names longer than 21 characters are cut (9 of 30 lengths),0.3,,,
+demo,tests.noisefloor_demo.test_demo_slow,test_demo_order_history_page,slows_down,,,0.2,1.2,refactor(demo): load order items with one query per order
+demo,tests.noisefloor_demo.test_demo_slow,test_demo_product_search_repeats,slows_down,,,0.27,2.0,refactor(demo): turn off the product search cache
+demo,tests.noisefloor_demo.test_demo_slow,test_demo_tax_rates_for_regions,slows_down,,,0.2,1.45,refactor(demo): retry tax service calls with a fixed back-off
+demo,tests.noisefloor_demo.test_demo_slow,test_demo_catalog_export_writes_every_row,slows_down,,,0.21,1.2,refactor(demo): write the catalog export one row at a time

@@ -137,6 +137,7 @@ Each entry records what was decided, the options considered, the choice, and why
 - **Chosen:** Python 3.14 everywhere (Noisefloor and the Jenkins build environment).
 - **Why:** it matches CrashCart. Open check: confirm dbt-core and dbt-duckdb install and run
   on 3.14 before relying on them. If they don't, raise it rather than switching silently.
+- **Update 2026-10-22:** they don't. The dbt step uses Python 3.13 instead; see D-030.
 
 ## D-016: Counting skipped and error results
 
@@ -283,3 +284,61 @@ Each entry records what was decided, the options considered, the choice, and why
   downloads run outside the command sandbox, one approved command at a time, the same as
   D-023. Versions are locked in `uv.lock`.
 - **Why:** uv inside the project's own environment would be removed by `uv sync`.
+
+## D-030: Python version for dbt
+
+- **Date:** 2026-10-22
+- **Tested:**
+  - dbt-core 1.11 + dbt-duckdb 1.11 on Python 3.14 fails at start-up (in its `mashumaro`
+    dependency).
+  - dbt-core 1.12 on 3.14 fails with a missing `metricflow` module.
+  - dbt-core 1.11 on Python 3.13 works.
+- **Options considered:** (a) Python 3.13 only for the dbt step, (b) the whole project on 3.13,
+  (c) drop dbt for plain SQL, (d) keep trying dbt 1.12 on 3.14.
+- **Chosen:** (a). `transform/` has its own locked uv environment on Python 3.13. Ingestion stays
+  on 3.14. Both pin DuckDB 1.5.6, so they read the same database file.
+- **Why:** dbt runs on an officially supported combination, and the rest of the project keeps
+  3.14.
+
+## D-031: Star schema
+
+- **Date:** 2026-10-22
+- **Chosen:**
+  - Fact `fct_test_executions`: one row per test execution (one test case in one build), with
+    keys to `dim_test`, `dim_build`, `dim_commit` and `dim_date`.
+  - The fact holds `outcome`, `jenkins_status`, `duration_s`, `error_message`, simulated and
+    real times, and `test_run_seq`.
+  - `commit_key` sits on the fact directly, even though the build implies it, because the
+    flaky rule is "same test, same commit".
+  - Layers: staging (views), intermediate (views), marts (tables).
+- **Why:** the grain matches the question being asked ("what happened to this test in this
+  build"), and every metric is an aggregate over it.
+
+## D-032: Simulated time formula
+
+- **Date:** 2026-10-22
+- **Chosen:** the newest build keeps its real start time, and each earlier build is placed 18
+  hours before the next one (dbt var `simulated_build_spacing_hours`). The real time stays in
+  `*_real_utc` columns.
+- **Note:** simulated times are anchored to the newest build, so they shift whenever a new build
+  arrives. Metrics are always recomputed in full, so results stay consistent for a given set of
+  builds.
+- **Why:** the ~46 builds span about 34 days, so the 30-day window visibly leaves the oldest
+  builds out.
+
+## D-033: Demo answer key as dbt seeds
+
+- **Date:** 2026-10-22
+- **Chosen:** `scripts/export_demo_seeds.py` copies `expected.json` and the demo commit subjects
+  from CrashCart's `noisefloor-demo` branch into `transform/seeds/` (`demo_expected_tests.csv`,
+  `demo_commits.csv`). The CSVs are committed.
+- **Why:** Jenkins knows neither which tests were designed to be flaky or slow, nor the commit
+  messages. Committing the seeds means a fresh clone needs no CrashCart.
+
+## D-034: Surrogate keys
+
+- **Date:** 2026-10-22
+- **Chosen:** keys are the MD5 hash of the natural key columns joined with `|` (macro
+  `surrogate_key`).
+- **Why:** the same input always gives the same key, so full rebuilds never renumber rows, and
+  no sequence state is needed.

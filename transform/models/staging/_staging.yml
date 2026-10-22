@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: stg_jenkins__builds
+    description: "Grain: one row per Jenkins build. Renamed columns and seconds instead of ms."
+    columns:
+      - name: build_number
+        data_tests: [not_null]
+      - name: started_at_real_utc
+        description: When Jenkins really started the build (UTC).
+        data_tests: [not_null]
+
+  - name: stg_jenkins__test_executions
+    description: >
+      Grain: one row per test execution (job, build, position in the JUnit report).
+      Adds `outcome` (pass, fail or skip) mapped from Jenkins' status.
+    columns:
+      - name: outcome
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["pass", "fail", "skip"]

@@ -1,0 +1,13 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Jenkins data exactly as ingestion loaded it (src/noisefloor/raw_store.py).
+    schema: raw
+    tables:
+      - name: jenkins_builds
+        description: One row per Jenkins build.
+      - name: jenkins_test_cases
+        description: One row per test case in a build's JUnit report.
+      - name: ingestion_runs
+        description: One row per ingestion run.

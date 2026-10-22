@@ -1,0 +1,37 @@
+name: noisefloor
+version: "0.1.0"
+config-version: 2
+profile: noisefloor
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Simulated time (decision D-009 / D-032): the newest build keeps its real start time and each
+  # earlier build is placed this many hours before the next one.
+  simulated_build_spacing_hours: 18
+
+models:
+  noisefloor:
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table
+
+seeds:
+  noisefloor:
+    +schema: seeds
+    demo_expected_tests:
+      +column_types:
+        designed_fail_rate: double
+        baseline_s: double
+        slowed_s: double

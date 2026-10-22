@@ -1,0 +1,12 @@
+# Connection settings for dbt. The warehouse is the DuckDB file that ingestion writes.
+# The default path is relative to the repo root, where dbt is run from:
+#   uv run --project transform dbt build --project-dir transform --profiles-dir transform
+# NOISEFLOOR_WAREHOUSE overrides it, e.g. for tests.
+noisefloor:
+  target: local
+  outputs:
+    local:
+      type: duckdb
+      path: "{{ env_var('NOISEFLOOR_WAREHOUSE', 'data/noisefloor.duckdb') }}"
+      schema: main
+      threads: 4

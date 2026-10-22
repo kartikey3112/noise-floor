@@ -1,0 +1,14 @@
+version: 2
+
+models:
+  - name: int_build_times
+    description: >
+      Grain: one row per Jenkins build. Gives each build a simulated start time so the
+      30-day window has something to cut off: the newest build keeps its real time, and each
+      earlier one is placed `simulated_build_spacing_hours` before the next.
+    columns:
+      - name: started_at_utc
+        description: Simulated start time (UTC). Every metric uses this one.
+        data_tests: [not_null]
+      - name: started_at_real_utc
+        description: Real Jenkins start time (UTC), kept for reference.

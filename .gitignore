@@ -10,6 +10,12 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+# dbt build output
+transform/target/
+transform/logs/
+transform/dbt_packages/
+transform/.user.yml
+
 # Local data
 *.duckdb
 *.duckdb.wal

@@ -1,0 +1,91 @@
+version: 2
+
+models:
+  - name: fct_test_executions
+    description: >
+      Grain: one row per test execution, meaning one test case in one Jenkins build.
+      The center of the star schema; joins to dim_test, dim_build, dim_commit and dim_date.
+    columns:
+      - name: execution_key
+        description: Hash of (job_name, build_number, case_index).
+        data_tests: [unique, not_null]
+      - name: test_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_test'), field: test_key}
+      - name: build_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_build'), field: build_key}
+      - name: commit_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_commit'), field: commit_key}
+      - name: date_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: executed_at_utc
+        description: Simulated execution time (the build's simulated start). Used by every metric.
+      - name: executed_at_real_utc
+        description: Real Jenkins time, kept for reference.
+      - name: jenkins_status
+        description: Status exactly as Jenkins reported it.
+      - name: outcome
+        description: pass, fail or skip. Skips are ignored by every metric.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["pass", "fail", "skip"]
+      - name: duration_s
+        description: How long the test took, in seconds.
+      - name: test_run_seq
+        description: 1 for the test's first execution in time order, 2 for its second, and so on.
+
+  - name: dim_test
+    description: >
+      Grain: one row per test, identified by (suite_name, class_name, test_name).
+      designed_* columns come from the demo answer key and are empty for real tests.
+    columns:
+      - name: test_key
+        description: Hash of (suite_name, class_name, test_name).
+        data_tests: [unique, not_null]
+      - name: suite_name
+        description: The test layer (unit, api or demo), set as the JUnit suite name by Jenkins.
+      - name: designed_as
+        description: flaky, stable or slows_down for demo tests; empty for real tests.
+
+  - name: dim_build
+    description: "Grain: one row per Jenkins build."
+    columns:
+      - name: build_key
+        description: Hash of (job_name, build_number).
+        data_tests: [unique, not_null]
+      - name: started_at_utc
+        description: Simulated start time (UTC).
+      - name: started_at_real_utc
+        description: Real Jenkins start time (UTC).
+      - name: is_time_simulated
+        description: True when started_at_utc is simulated rather than real.
+
+  - name: dim_commit
+    description: "Grain: one row per commit SHA Jenkins built."
+    columns:
+      - name: commit_key
+        description: Hash of the commit SHA.
+        data_tests: [unique, not_null]
+      - name: commit_seq
+        description: Order in which commits were first built (1 = earliest).
+      - name: subject
+        description: Commit message subject, from the demo seed.
+
+  - name: dim_date
+    description: "Grain: one row per calendar day (UTC) across the simulated build range."
+    columns:
+      - name: date_key
+        description: The date as a yyyymmdd number.
+        data_tests: [unique, not_null]
