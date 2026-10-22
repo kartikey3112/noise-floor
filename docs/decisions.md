@@ -342,3 +342,21 @@ Each entry records what was decided, the options considered, the choice, and why
   `surrogate_key`).
 - **Why:** the same input always gives the same key, so full rebuilds never renumber rows, and
   no sequence state is needed.
+
+## D-035: Metric details
+
+- **Date:** 2026-10-22
+- **Simulated time:** left as designed in D-032 (anchored to the newest build). The history is
+  complete, so it won't shift unless new builds are added.
+- **Edge cases, filled in while building (open to change):**
+  - **Flip rate:** pairs of consecutive non-skipped executions. A pair counts in a day's
+    window only if both of its executions fall in the 30 days ending at the end of that day.
+    The test-level "current" value is the window ending on the last day with builds.
+  - **Regression:** needs at least 5 earlier passed runs. Only passed runs are checked, and
+    only passed runs form the baseline (D-017).
+  - **Regression episodes:** consecutive flagged runs of one test form one episode. Its onset
+    gives the commit where the slowdown started.
+- **Tests:** 7 dbt unit tests on hand-made data with known answers, one or more per metric. With
+  a deliberately wrong setting (floor 0.3 s instead of 0.5 s), the expected unit test fails.
+- **Result on the full history:** all 11 demo tests detected as designed. 0 of the 268 real
+  tests are flaky. Each slowdown is found on exactly its designed commit.

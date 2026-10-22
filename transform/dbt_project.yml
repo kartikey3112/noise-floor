@@ -14,6 +14,16 @@ vars:
   # Simulated time (decision D-009 / D-032): the newest build keeps its real start time and each
   # earlier build is placed this many hours before the next one.
   simulated_build_spacing_hours: 18
+  # Rolling flip-rate window, in days.
+  flip_window_days: 30
+  # Runtime regression rule (decision D-013): a passed run is a regression when it takes more
+  # than ratio x the median of the test's previous baseline_runs passed runs, AND at least
+  # min_increase_s seconds longer. With fewer than min_baseline_runs earlier passed runs,
+  # there's no baseline yet.
+  regression_ratio: 1.5
+  regression_min_increase_s: 0.5
+  regression_baseline_runs: 20
+  regression_min_baseline_runs: 5
 
 models:
   noisefloor:
@@ -25,6 +35,9 @@ models:
       +materialized: view
     marts:
       +schema: marts
+      +materialized: table
+    metrics:
+      +schema: metrics
       +materialized: table
 
 seeds:

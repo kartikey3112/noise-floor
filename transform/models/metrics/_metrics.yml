@@ -1,0 +1,238 @@
+version: 2
+
+models:
+  - name: mart_same_commit_divergence
+    description: >
+      Grain: one row per (test, commit). is_divergent is true when the test both passed and
+      failed on that commit. Skips are ignored.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [test_key, commit_key]}
+
+  - name: int_test_outcome_pairs
+    description: >
+      Grain: one row per pair of consecutive non-skipped executions of a test, in time order.
+      is_flip is true when the outcome changed between the two.
+
+  - name: mart_flip_rate_daily
+    description: >
+      Grain: one row per (test, day). The flip rate over the 30 days ending that day: flipped
+      pairs divided by all pairs whose two executions both fall in the window.
+    data_tests:
+      - unique_combination:
+          arguments: {columns: [test_key, date_key]}
+    columns:
+      - name: flip_rate
+        description: Share of consecutive-execution pairs in the window that flipped (0 to 1).
+
+  - name: mart_runtime_checks
+    description: >
+      Grain: one row per passed execution. baseline_median_s is the median of the test's
+      previous 20 passed runs; is_regression applies the 1.5x and +0.5 s rule.
+    columns:
+      - name: execution_key
+        data_tests: [unique, not_null]
+
+  - name: mart_runtime_regressions
+    description: >
+      Grain: one row per regression episode (consecutive flagged runs of one test). The onset
+      columns describe the first slow run: when, on which build and commit, and how slow.
+    columns:
+      - name: regression_key
+        data_tests: [unique, not_null]
+
+  - name: mart_test_health
+    description: >
+      Grain: one row per test. Is it flaky (same-commit divergence), its current 30-day flip
+      rate, its fail rate, and whether and where it regressed.
+    columns:
+      - name: test_key
+        data_tests: [unique, not_null]
+
+  - name: mart_answer_key_check
+    description: >
+      Grain: one row per demo test. Designed behaviour against detected behaviour.
+
+unit_tests:
+  # --- same-commit divergence ---------------------------------------------------------------
+  - name: divergence_needs_a_pass_and_a_fail_on_the_same_commit
+    description: >
+      A passes and fails on c1: divergent. B passes on c1 and fails on c2: the code changed, so
+      not divergent. C passes and is skipped on c1: a skip is neither, so not divergent.
+    model: mart_same_commit_divergence
+    given:
+      - input: ref('fct_test_executions')
+        rows:
+          - {test_key: A, commit_key: c1, outcome: pass, executed_at_utc: "2026-10-01 10:00:00"}
+          - {test_key: A, commit_key: c1, outcome: fail, executed_at_utc: "2026-10-01 10:05:00"}
+          - {test_key: B, commit_key: c1, outcome: pass, executed_at_utc: "2026-10-01 10:00:00"}
+          - {test_key: B, commit_key: c2, outcome: fail, executed_at_utc: "2026-10-02 10:00:00"}
+          - {test_key: C, commit_key: c1, outcome: pass, executed_at_utc: "2026-10-01 10:00:00"}
+          - {test_key: C, commit_key: c1, outcome: skip, executed_at_utc: "2026-10-01 10:05:00"}
+    expect:
+      rows:
+        - {test_key: A, commit_key: c1, passes: 1, fails: 1, is_divergent: true}
+        - {test_key: B, commit_key: c1, passes: 1, fails: 0, is_divergent: false}
+        - {test_key: B, commit_key: c2, passes: 0, fails: 1, is_divergent: false}
+        - {test_key: C, commit_key: c1, passes: 1, fails: 0, is_divergent: false}
+
+  # --- consecutive pairs ------------------------------------------------------------------
+  - name: pairs_link_each_run_to_the_one_before_and_drop_skips
+    description: >
+      A runs P, P, F, P: pairs (P,P) (P,F) (F,P), two flips. B runs P, skip, F: the skip is
+      dropped, leaving one pair (P,F), which flips.
+    model: int_test_outcome_pairs
+    given:
+      - input: ref('fct_test_executions')
+        rows:
+          - {test_key: A, execution_key: a1, test_run_seq: 1, outcome: pass, executed_at_utc: "2026-10-01 00:00:00"}
+          - {test_key: A, execution_key: a2, test_run_seq: 2, outcome: pass, executed_at_utc: "2026-10-02 00:00:00"}
+          - {test_key: A, execution_key: a3, test_run_seq: 3, outcome: fail, executed_at_utc: "2026-10-03 00:00:00"}
+          - {test_key: A, execution_key: a4, test_run_seq: 4, outcome: pass, executed_at_utc: "2026-10-04 00:00:00"}
+          - {test_key: B, execution_key: b1, test_run_seq: 1, outcome: pass, executed_at_utc: "2026-10-01 00:00:00"}
+          - {test_key: B, execution_key: b2, test_run_seq: 2, outcome: skip, executed_at_utc: "2026-10-02 00:00:00"}
+          - {test_key: B, execution_key: b3, test_run_seq: 3, outcome: fail, executed_at_utc: "2026-10-03 00:00:00"}
+    expect:
+      rows:
+        - {test_key: A, previous_execution_key: a1, execution_key: a2, is_flip: false}
+        - {test_key: A, previous_execution_key: a2, execution_key: a3, is_flip: true}
+        - {test_key: A, previous_execution_key: a3, execution_key: a4, is_flip: true}
+        - {test_key: B, previous_execution_key: b1, execution_key: b3, is_flip: true}
+
+  # --- rolling flip rate ------------------------------------------------------------------
+  - name: flip_rate_counts_only_pairs_inside_the_30_day_window
+    description: >
+      Test A's pairs end on Sep 1 (flip), Oct 10 (no flip), Oct 20 (flip) and Oct 25 (flip).
+      On Oct 30, the window is Oct 1 to the end of Oct 30. The Sep 1 pair is outside, the
+      Oct 10 pair starts on Sep 20 so it's outside too, which leaves 2 pairs, both flips:
+      rate 1.0. On Oct 22 the window holds only the Oct 20 pair: 1 of 1.
+    model: mart_flip_rate_daily
+    given:
+      - input: ref('dim_date')
+        rows:
+          - {date_key: 20261022, calendar_date: "2026-10-22"}
+          - {date_key: 20261030, calendar_date: "2026-10-30"}
+      - input: ref('int_test_outcome_pairs')
+        rows:
+          - {test_key: A, previous_executed_at_utc: "2026-08-31 12:00:00", executed_at_utc: "2026-09-01 12:00:00", is_flip: true}
+          - {test_key: A, previous_executed_at_utc: "2026-09-20 12:00:00", executed_at_utc: "2026-10-10 12:00:00", is_flip: false}
+          - {test_key: A, previous_executed_at_utc: "2026-10-10 12:00:00", executed_at_utc: "2026-10-20 12:00:00", is_flip: true}
+          - {test_key: A, previous_executed_at_utc: "2026-10-20 12:00:00", executed_at_utc: "2026-10-25 12:00:00", is_flip: true}
+    expect:
+      rows:
+        - {test_key: A, date_key: 20261022, pairs_in_window: 1, flips_in_window: 1, flip_rate: 1.0}
+        - {test_key: A, date_key: 20261030, pairs_in_window: 2, flips_in_window: 2, flip_rate: 1.0}
+
+  - name: flip_rate_is_flips_over_pairs
+    description: "P, P, F, P inside the window: 2 flips out of 3 pairs = 0.667 (2/3)."
+    model: mart_flip_rate_daily
+    given:
+      - input: ref('dim_date')
+        rows:
+          - {date_key: 20261010, calendar_date: "2026-10-10"}
+      - input: ref('int_test_outcome_pairs')
+        rows:
+          - {test_key: A, previous_executed_at_utc: "2026-10-01 00:00:00", executed_at_utc: "2026-10-02 00:00:00", is_flip: false}
+          - {test_key: A, previous_executed_at_utc: "2026-10-02 00:00:00", executed_at_utc: "2026-10-03 00:00:00", is_flip: true}
+          - {test_key: A, previous_executed_at_utc: "2026-10-03 00:00:00", executed_at_utc: "2026-10-04 00:00:00", is_flip: true}
+    expect:
+      rows:
+        - {test_key: A, pairs_in_window: 3, flips_in_window: 2, flip_rate: 0.6666666666666666}
+
+  # --- runtime regression -----------------------------------------------------------------
+  - name: regression_needs_ratio_floor_and_enough_history
+    description: >
+      Test S runs 1.0 s five times, then 2.0 s: 2x and +1.0 s, so run 6 is a regression.
+      Test T runs 0.01 s five times, then 0.40 s: 40x but only +0.39 s, below the 0.5 s
+      floor, so it isn't. Test U has only 4 earlier runs before its 3.0 s run: no baseline
+      yet, so it isn't either.
+    model: mart_runtime_checks
+    given:
+      - input: ref('fct_test_executions')
+        rows:
+          - {execution_key: s1, test_key: S, test_run_seq: 1, outcome: pass, duration_s: 1.0}
+          - {execution_key: s2, test_key: S, test_run_seq: 2, outcome: pass, duration_s: 1.0}
+          - {execution_key: s3, test_key: S, test_run_seq: 3, outcome: pass, duration_s: 1.0}
+          - {execution_key: s4, test_key: S, test_run_seq: 4, outcome: pass, duration_s: 1.0}
+          - {execution_key: s5, test_key: S, test_run_seq: 5, outcome: pass, duration_s: 1.0}
+          - {execution_key: s6, test_key: S, test_run_seq: 6, outcome: pass, duration_s: 2.0}
+          - {execution_key: t1, test_key: T, test_run_seq: 1, outcome: pass, duration_s: 0.01}
+          - {execution_key: t2, test_key: T, test_run_seq: 2, outcome: pass, duration_s: 0.01}
+          - {execution_key: t3, test_key: T, test_run_seq: 3, outcome: pass, duration_s: 0.01}
+          - {execution_key: t4, test_key: T, test_run_seq: 4, outcome: pass, duration_s: 0.01}
+          - {execution_key: t5, test_key: T, test_run_seq: 5, outcome: pass, duration_s: 0.01}
+          - {execution_key: t6, test_key: T, test_run_seq: 6, outcome: pass, duration_s: 0.40}
+          - {execution_key: u1, test_key: U, test_run_seq: 1, outcome: pass, duration_s: 1.0}
+          - {execution_key: u2, test_key: U, test_run_seq: 2, outcome: pass, duration_s: 1.0}
+          - {execution_key: u3, test_key: U, test_run_seq: 3, outcome: pass, duration_s: 1.0}
+          - {execution_key: u4, test_key: U, test_run_seq: 4, outcome: pass, duration_s: 1.0}
+          - {execution_key: u5, test_key: U, test_run_seq: 5, outcome: pass, duration_s: 3.0}
+    expect:
+      rows:
+        - {execution_key: s1, baseline_runs: 0, is_regression: false}
+        - {execution_key: s2, baseline_runs: 1, is_regression: false}
+        - {execution_key: s3, baseline_runs: 2, is_regression: false}
+        - {execution_key: s4, baseline_runs: 3, is_regression: false}
+        - {execution_key: s5, baseline_runs: 4, is_regression: false}
+        - {execution_key: s6, baseline_runs: 5, is_regression: true}
+        - {execution_key: t1, baseline_runs: 0, is_regression: false}
+        - {execution_key: t2, baseline_runs: 1, is_regression: false}
+        - {execution_key: t3, baseline_runs: 2, is_regression: false}
+        - {execution_key: t4, baseline_runs: 3, is_regression: false}
+        - {execution_key: t5, baseline_runs: 4, is_regression: false}
+        - {execution_key: t6, baseline_runs: 5, is_regression: false}
+        - {execution_key: u1, baseline_runs: 0, is_regression: false}
+        - {execution_key: u2, baseline_runs: 1, is_regression: false}
+        - {execution_key: u3, baseline_runs: 2, is_regression: false}
+        - {execution_key: u4, baseline_runs: 3, is_regression: false}
+        - {execution_key: u5, baseline_runs: 4, is_regression: false}
+
+  - name: fast_failures_do_not_drag_the_baseline_down
+    description: >
+      Test F passes at 1.0 s five times, then fails fast at 0.1 s six times, then passes at
+      1.4 s. Only passed runs form the baseline: median 1.0, so 1.4 s is 1.4x, under 1.5x, and
+      not a regression. If the six fast failures counted, the median of the eleven earlier
+      runs would be 0.1 and 1.4 s would look like a 14x slowdown: a false alarm.
+    model: mart_runtime_checks
+    given:
+      - input: ref('fct_test_executions')
+        rows:
+          - {execution_key: f1, test_key: F, test_run_seq: 1, outcome: pass, duration_s: 1.0}
+          - {execution_key: f2, test_key: F, test_run_seq: 2, outcome: pass, duration_s: 1.0}
+          - {execution_key: f3, test_key: F, test_run_seq: 3, outcome: pass, duration_s: 1.0}
+          - {execution_key: f4, test_key: F, test_run_seq: 4, outcome: pass, duration_s: 1.0}
+          - {execution_key: f5, test_key: F, test_run_seq: 5, outcome: pass, duration_s: 1.0}
+          - {execution_key: x1, test_key: F, test_run_seq: 6, outcome: fail, duration_s: 0.1}
+          - {execution_key: x2, test_key: F, test_run_seq: 7, outcome: fail, duration_s: 0.1}
+          - {execution_key: x3, test_key: F, test_run_seq: 8, outcome: fail, duration_s: 0.1}
+          - {execution_key: x4, test_key: F, test_run_seq: 9, outcome: fail, duration_s: 0.1}
+          - {execution_key: x5, test_key: F, test_run_seq: 10, outcome: fail, duration_s: 0.1}
+          - {execution_key: x6, test_key: F, test_run_seq: 11, outcome: fail, duration_s: 0.1}
+          - {execution_key: f6, test_key: F, test_run_seq: 12, outcome: pass, duration_s: 1.4}
+    expect:
+      rows:
+        - {execution_key: f1, baseline_runs: 0, baseline_median_s: null, is_regression: false}
+        - {execution_key: f2, baseline_runs: 1, baseline_median_s: 1.0, is_regression: false}
+        - {execution_key: f3, baseline_runs: 2, baseline_median_s: 1.0, is_regression: false}
+        - {execution_key: f4, baseline_runs: 3, baseline_median_s: 1.0, is_regression: false}
+        - {execution_key: f5, baseline_runs: 4, baseline_median_s: 1.0, is_regression: false}
+        - {execution_key: f6, baseline_runs: 5, baseline_median_s: 1.0, is_regression: false}
+
+  - name: consecutive_flagged_runs_form_one_episode
+    description: >
+      Runs 1-5 normal, runs 6-8 flagged, run 9 normal, run 10 flagged: two episodes, the first
+      starting at run 6 with 3 flagged runs, the second at run 10 with 1.
+    model: mart_runtime_regressions
+    given:
+      - input: ref('mart_runtime_checks')
+        rows:
+          - {test_key: A, execution_key: e5, test_run_seq: 5, is_regression: false, executed_at_utc: "2026-10-05 00:00:00"}
+          - {test_key: A, execution_key: e6, test_run_seq: 6, is_regression: true, commit_key: c2, executed_at_utc: "2026-10-06 00:00:00", baseline_median_s: 0.2, duration_s: 1.2, duration_ratio: 6.0}
+          - {test_key: A, execution_key: e7, test_run_seq: 7, is_regression: true, commit_key: c2, executed_at_utc: "2026-10-07 00:00:00"}
+          - {test_key: A, execution_key: e8, test_run_seq: 8, is_regression: true, commit_key: c2, executed_at_utc: "2026-10-08 00:00:00"}
+          - {test_key: A, execution_key: e9, test_run_seq: 9, is_regression: false, executed_at_utc: "2026-10-09 00:00:00"}
+          - {test_key: A, execution_key: e10, test_run_seq: 10, is_regression: true, commit_key: c3, executed_at_utc: "2026-10-10 00:00:00"}
+    expect:
+      rows:
+        - {test_key: A, onset_execution_key: e6, onset_commit_key: c2, flagged_runs: 3, onset_duration_ratio: 6.0}
+        - {test_key: A, onset_execution_key: e10, onset_commit_key: c3, flagged_runs: 1, onset_duration_ratio: null}
