@@ -29,9 +29,13 @@ latest_flip_rate as (
 regressions as (
     select
         test_key,
-        count(*)                                            as regression_episodes,
-        arg_min(onset_commit_key, onset_at_utc)             as first_regression_commit_key,
-        min(onset_at_utc)                                   as first_regression_at_utc
+        count(*) filter (where episode_kind = 'sustained')  as sustained_regressions,
+        count(*) filter (where episode_kind = 'spike')      as runtime_spikes,
+        -- Where the first sustained slowdown started; spikes don't count here.
+        arg_min(onset_commit_key, onset_at_utc)
+            filter (where episode_kind = 'sustained')       as first_regression_commit_key,
+        min(onset_at_utc)
+            filter (where episode_kind = 'sustained')       as first_regression_at_utc
     from {{ ref('mart_runtime_regressions') }}
     group by test_key
 )
@@ -50,8 +54,9 @@ select
     coalesce(f.flip_rate, 0)                                as flip_rate_30d,
     coalesce(f.flips_in_window, 0)                          as flips_30d,
     coalesce(f.pairs_in_window, 0)                          as pairs_30d,
-    coalesce(g.regression_episodes, 0)                      as regression_episodes,
-    coalesce(g.regression_episodes, 0) > 0                  as has_regressed,
+    coalesce(g.sustained_regressions, 0)                    as sustained_regressions,
+    coalesce(g.runtime_spikes, 0)                           as runtime_spikes,
+    coalesce(g.sustained_regressions, 0) > 0                as has_regressed,
     g.first_regression_commit_key,
     g.first_regression_at_utc
 from {{ ref('dim_test') }} as t

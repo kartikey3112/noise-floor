@@ -1,5 +1,7 @@
 version: 2
 
+# Data-quality checks on the raw layer (decision D-037). The raw tables declare no keys (D-026),
+# so uniqueness, nulls and links between tables are checked here instead.
 sources:
   - name: raw
     description: Jenkins data exactly as ingestion loaded it (src/noisefloor/raw_store.py).
@@ -7,7 +9,59 @@ sources:
     tables:
       - name: jenkins_builds
         description: One row per Jenkins build.
+        config:
+          # Freshness: has ingestion loaded anything recently? Checked by `dbt source freshness`.
+          loaded_at_field: ingested_at_utc
+          freshness:
+            warn_after: {count: 1, period: day}
+            error_after: {count: 7, period: day}
+        data_tests:
+          - unique_combination:
+              arguments: {columns: [job_name, build_number]}
+        columns:
+          - name: build_number
+            data_tests: [not_null]
+          - name: started_at_utc
+            data_tests: [not_null]
+          - name: commit_sha
+            description: Every build must know which commit it tested.
+            data_tests: [not_null]
+          - name: result
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values: ["SUCCESS", "UNSTABLE", "FAILURE", "ABORTED", "NOT_BUILT"]
+
       - name: jenkins_test_cases
         description: One row per test case in a build's JUnit report.
+        data_tests:
+          - unique_combination:
+              arguments: {columns: [job_name, build_number, case_index]}
+          - relationships_on_two_columns:
+              arguments:
+                to: source('raw', 'jenkins_builds')
+                columns: [job_name, build_number]
+        columns:
+          - name: suite_name
+            data_tests: [not_null]
+          - name: class_name
+            data_tests: [not_null]
+          - name: test_name
+            data_tests: [not_null]
+          - name: status
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values: ["PASSED", "FAILED", "SKIPPED", "FIXED", "REGRESSED"]
+          - name: duration_s
+            data_tests:
+              - not_null
+              - non_negative
+
       - name: ingestion_runs
         description: One row per ingestion run.
+        config:
+          loaded_at_field: finished_at_utc
+          freshness:
+            warn_after: {count: 1, period: day}
+            error_after: {count: 7, period: day}

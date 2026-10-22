@@ -24,6 +24,10 @@ vars:
   regression_min_increase_s: 0.5
   regression_baseline_runs: 20
   regression_min_baseline_runs: 5
+  # A regression episode with at least this many flagged runs in a row is "sustained"; a
+  # shorter one is a "spike", usually timing noise (decision D-036). It's a label only: the
+  # rule above stays the same.
+  regression_sustained_min_runs: 3
 
 models:
   noisefloor:

@@ -1,8 +1,10 @@
 -- Grain: one row per demo test. Compares what each demo test was designed to do (the answer
 -- key) with what the metrics found, so the README can say how well detection worked.
 --   flaky       -> should be flagged flaky (diverged on at least one commit)
---   slows_down  -> should regress, starting on its designed slowdown commit, and not be flaky
---   stable      -> should be neither flaky nor regressed
+--   slows_down  -> should have a sustained regression starting on its designed slowdown
+--                  commit, and not be flaky
+--   stable      -> should be neither flaky nor have a sustained regression
+-- (Runtime spikes, one or two slow runs, are timing noise and aren't counted either way.)
 
 select
     t.test_name,

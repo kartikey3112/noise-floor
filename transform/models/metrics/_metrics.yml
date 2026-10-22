@@ -40,6 +40,12 @@ models:
     columns:
       - name: regression_key
         data_tests: [unique, not_null]
+      - name: episode_kind
+        description: sustained (3 or more flagged runs in a row) or spike (fewer; usually noise).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["sustained", "spike"]
 
   - name: mart_test_health
     description: >
@@ -220,8 +226,9 @@ unit_tests:
 
   - name: consecutive_flagged_runs_form_one_episode
     description: >
-      Runs 1-5 normal, runs 6-8 flagged, run 9 normal, run 10 flagged: two episodes, the first
-      starting at run 6 with 3 flagged runs, the second at run 10 with 1.
+      Runs 1-5 normal, runs 6-8 flagged, run 9 normal, run 10 flagged: two episodes. The first
+      starts at run 6 with 3 flagged runs, so it's sustained. The second, at run 10, has 1
+      flagged run, so it's a spike.
     model: mart_runtime_regressions
     given:
       - input: ref('mart_runtime_checks')
@@ -234,5 +241,5 @@ unit_tests:
           - {test_key: A, execution_key: e10, test_run_seq: 10, is_regression: true, commit_key: c3, executed_at_utc: "2026-10-10 00:00:00"}
     expect:
       rows:
-        - {test_key: A, onset_execution_key: e6, onset_commit_key: c2, flagged_runs: 3, onset_duration_ratio: 6.0}
-        - {test_key: A, onset_execution_key: e10, onset_commit_key: c3, flagged_runs: 1, onset_duration_ratio: null}
+        - {test_key: A, onset_execution_key: e6, onset_commit_key: c2, flagged_runs: 3, onset_duration_ratio: 6.0, episode_kind: sustained}
+        - {test_key: A, onset_execution_key: e10, onset_commit_key: c3, flagged_runs: 1, onset_duration_ratio: null, episode_kind: spike}

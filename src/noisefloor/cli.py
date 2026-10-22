@@ -8,6 +8,7 @@ from noisefloor.config import load_settings
 from noisefloor.ingest import ingest, reload_from_landing
 from noisefloor.jenkins_client import JenkinsClient
 from noisefloor.landing import Landing
+from noisefloor.pipeline import Step, dbt, run_steps
 from noisefloor.raw_store import RawStore
 
 
@@ -46,6 +47,28 @@ def cmd_reload_raw(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_transform(args: argparse.Namespace) -> int:
+    warehouse = load_settings(Path(args.env_file)).warehouse_path
+    return dbt("build", warehouse=warehouse)
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    warehouse = load_settings(Path(args.env_file)).warehouse_path
+    return run_steps(
+        [
+            Step("ingest new Jenkins builds", lambda: cmd_ingest(args)),
+            Step(
+                "build models and run all checks (dbt build)",
+                lambda: dbt("build", warehouse=warehouse),
+            ),
+            Step(
+                "check data freshness (dbt source freshness)",
+                lambda: dbt("source", "freshness", warehouse=warehouse),
+            ),
+        ]
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="noisefloor", description=__doc__.splitlines()[0])
     parser.add_argument("--env-file", default=".env", help="settings file (default: .env)")
@@ -56,7 +79,15 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser(
         "reload-raw", help="rebuild the raw tables from the landing files, without Jenkins"
     ).set_defaults(handler=cmd_reload_raw)
+    commands.add_parser(
+        "transform", help="build the models and run every check (dbt build)"
+    ).set_defaults(handler=cmd_transform)
+    commands.add_parser(
+        "run", help="the whole pipeline: ingest, transform and check, then data freshness"
+    ).set_defaults(handler=cmd_run)
     args = parser.parse_args(argv)
+    # Print each line as it's written, so our messages and dbt's output appear in order.
+    sys.stdout.reconfigure(line_buffering=True)
     return args.handler(args)
 
 

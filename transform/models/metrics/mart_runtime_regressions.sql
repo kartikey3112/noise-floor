@@ -4,6 +4,11 @@
 -- After a real slowdown, every later run is flagged until the slow runs fill most of the
 -- baseline and the median catches up ("the new normal"). An episode groups those runs, and
 -- its onset says when and on which commit the slowdown started.
+--
+-- episode_kind: "sustained" when the episode has at least regression_sustained_min_runs
+-- flagged runs, otherwise "spike". Example: one API test run taking 1.90 s instead of its
+-- usual 0.51 s, then back to normal, is a spike; a test slow for 11 runs in a row after a
+-- commit is sustained.
 
 with checks as (
     select
@@ -42,5 +47,9 @@ episodes as (
 
 select
     {{ surrogate_key(['test_key', 'onset_execution_key']) }} as regression_key,
-    *
+    *,
+    case
+        when flagged_runs >= {{ var('regression_sustained_min_runs') }} then 'sustained'
+        else 'spike'
+    end as episode_kind
 from episodes

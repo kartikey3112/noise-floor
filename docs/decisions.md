@@ -360,3 +360,52 @@ Each entry records what was decided, the options considered, the choice, and why
   a deliberately wrong setting (floor 0.3 s instead of 0.5 s), the expected unit test fails.
 - **Result on the full history:** all 11 demo tests detected as designed. 0 of the 268 real
   tests are flaky. Each slowdown is found on exactly its designed commit.
+
+## D-036: Runtime spikes versus sustained regressions
+
+- **Date:** 2026-10-22
+- **Context:** 23 regression episodes in real API tests were mostly single slow runs. The API
+  tests run 4 at a time, so their timings are noisy.
+- **Options considered:** (1) keep the rule and label episodes by length, (2) count only
+  sustained slowdowns (change D-013), (3) raise the thresholds.
+- **Chosen:** (1).
+  - Each episode gets `episode_kind`: `sustained` if it has 3 or more flagged runs in a row
+    (dbt var `regression_sustained_min_runs`), otherwise `spike`.
+  - `has_regressed` and the answer-key check count sustained episodes only.
+- **Result:** API has 20 spikes and 3 sustained episodes (3 to 4 runs each). Demo has 4
+  sustained episodes (8 to 11 runs) and no spikes.
+- **Why:** it shows everything honestly, and doesn't tune the rule to fit this dataset.
+
+## D-037: Data-quality checks
+
+- **Date:** 2026-10-22
+- **Chosen:** dbt tests, run by every `dbt build`:
+  - **Uniqueness:** raw builds `(job, build)`, raw test cases `(job, build, case_index)`, the
+    fact grain `(test_key, build_key)`, and every model's key.
+  - **Nulls:** build number, start time and commit SHA. Suite, class and test name. Duration
+    and outcome.
+  - **Referential integrity:** every raw test case belongs to a raw build (a two-column key).
+    Every fact row links to all four dimensions.
+  - **Allowed values:** build results, Jenkins statuses, outcomes, episode kinds.
+  - **Rules:** durations aren't negative, and every SUCCESS or UNSTABLE build has test
+    results. A suite losing more than 10% of its results from one build to the next only
+    warns, because tests can be removed on purpose.
+  - **Freshness:** `dbt source freshness` on `raw.jenkins_builds` and `raw.ingestion_runs`.
+    It warns after 1 day without ingestion and errors after 7.
+- **Proof:** on a copy of the warehouse with a duplicated build, a missing commit SHA and one
+  build's unit results deleted, the matching checks failed, failed and warned.
+- **Why:** it covers the four kinds asked for (nulls, uniqueness, referential integrity,
+  freshness), plus the failure modes most likely in this pipeline.
+
+## D-038: Running the pipeline end to end
+
+- **Date:** 2026-10-22
+- **Chosen:** `noisefloor run` runs ingest, then `dbt build` (models, unit tests and every
+  data-quality check), then `dbt source freshness`. It stops at the first failing step and
+  exits with its code. dbt is called from its own environment (`transform/.venv`).
+  `noisefloor transform` runs only the dbt step.
+- **Scheduling (optional, free):** Windows Task Scheduler or cron can call `noisefloor run`.
+  GitHub Actions can't reach the local Jenkins (D-014 context), so it isn't used for the
+  pipeline.
+- **Why:** one command, the same on every OS. A non-zero exit code makes it easy to schedule
+  or wrap.
