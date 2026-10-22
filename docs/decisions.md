@@ -219,3 +219,23 @@ Each entry records what was decided, the options considered, the choice, and why
   a time.
 - **Why:** the build has to download from several registries (Docker Hub, ghcr.io, Python
   builds, Jenkins plugins).
+
+## D-024: Build history plan
+
+- **Date:** 2026-10-22
+- **Chosen:**
+  - 15 builds on the base demo commit (`f8da8bd`), then 8 builds on each of the 4 slowdown
+    commits, in commit order. 47 builds in total.
+  - Run by `scripts/generate_history.py`, which uses only the standard library and can be
+    re-run safely (it only starts the builds that are missing).
+  - The first test build (#1, run on the last commit) was deleted, so history starts at build
+    #2 and follows commit order.
+- **Why:** 15 builds give every test a settled normal duration before the first slowdown. 8
+  re-runs per commit give the flaky tests room to disagree on the same commit.
+
+## D-025: Jenkins API token
+
+- **Date:** 2026-10-22
+- **Chosen:** scripts and ingestion authenticate with a Jenkins API token (`JENKINS_API_TOKEN`
+  in `.env`), not the admin password.
+- **Why:** a token can be revoked on its own, and it needs no CSRF crumb for POST requests.
