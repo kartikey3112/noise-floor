@@ -1,5 +1,5 @@
 -- Grain: one row per test execution (job_name, build_number, case_index).
--- Maps Jenkins' statuses to the three outcomes every metric uses (decision D-016):
+-- Maps Jenkins' statuses to the three outcomes every metric uses (ADR-010):
 --   PASSED, FIXED     -> pass   (FIXED = passed after failing in the previous build)
 --   FAILED, REGRESSED -> fail   (REGRESSED = failed after passing; JUnit errors arrive as FAILED)
 --   SKIPPED           -> skip   (stored, but ignored by every metric)

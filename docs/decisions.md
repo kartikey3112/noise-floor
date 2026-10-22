@@ -1,469 +1,315 @@
-# Decision log
+# Architecture decision records
 
-Each entry records what was decided, the options considered, the choice, and why.
+The decisions that shaped Noisefloor, with the alternatives considered and their
+consequences. The git history has the detail of how each was implemented.
+
+| # | Decision |
+|---|---|
+| [ADR-001](#adr-001-test-data-crashcart-plus-switchable-demo-tests) | Test data: CrashCart plus switchable demo tests |
+| [ADR-002](#adr-002-test-identity-and-what-jenkins-runs) | Test identity and what Jenkins runs |
+| [ADR-003](#adr-003-reproducible-jenkins-and-build-history) | Reproducible Jenkins and build history |
+| [ADR-004](#adr-004-duckdb-as-the-warehouse) | DuckDB as the warehouse |
+| [ADR-005](#adr-005-dbt-for-transformations-on-its-own-python-version) | dbt for transformations, on its own Python version |
+| [ADR-006](#adr-006-a-raw-landing-layer-that-keeps-the-source-as-is) | A raw landing layer that keeps the source as is |
+| [ADR-007](#adr-007-incremental-idempotent-ingestion) | Incremental, idempotent ingestion |
+| [ADR-008](#adr-008-star-schema-at-test-execution-grain) | Star schema at test-execution grain |
+| [ADR-009](#adr-009-simulated-build-times) | Simulated build times |
+| [ADR-010](#adr-010-metric-definitions) | Metric definitions |
+| [ADR-011](#adr-011-runtime-spikes-versus-sustained-regressions) | Runtime spikes versus sustained regressions |
+| [ADR-012](#adr-012-data-quality-checks) | Data-quality checks |
+| [ADR-013](#adr-013-orchestration-and-ci) | Orchestration and CI |
+| [ADR-014](#adr-014-a-static-report-and-a-generated-readme) | A static report and a generated README |
+| [ADR-015](#adr-015-free-tools-only) | Free tools only |
 
 ---
 
-## D-001: Source of test data
-
-- **Date:** 2026-10-22
-- **Options considered:**
-  1. A well-known open-source Python project.
-  2. A real project taken from a published flaky-test research dataset.
-  3. A new, purpose-built demo app (in this repo, or in its own repo).
-  4. CrashCart (github.com/kartikey3112/crash-cart), extended with demo tests.
-- **Chosen:** 4. CrashCart.
-- **Why:** CrashCart is an existing personal project with 394 tests and JUnit output. It already
-  has a pattern for deliberate, switchable defects. Adding clearly labelled demo tests gives
-  real test data plus a known answer key for flaky and slow tests.
-
-## D-002: Keep CrashCart's own CI unaffected
-
-- **Date:** 2026-10-22
-- **Chosen:** Demo tests that are flaky or slow on purpose stay switched off by default. They
-  live in their own folder and run only when an environment variable is set, which only
-  Jenkins sets.
-- **Why:** CrashCart's GitHub Actions run and its public dashboard must keep reporting the
-  real suite only.
-
-## D-003: Demo changes live on a separate branch
-
-- **Date:** 2026-10-22
-- **Options considered:** commit to `main`, or use a separate branch.
-- **Chosen:** a separate branch, `noisefloor-demo`, created from `main` at `ac7703e` and pushed
-  to GitHub.
-- **Why:** it keeps the `main` history clean. CrashCart's workflow triggers on pushes to `main`
-  only, so pushes to this branch don't start a GitHub Actions run.
-
-## D-004: Which CrashCart suites Jenkins runs
-
-- **Date:** 2026-10-22
-- **Options considered:** every suite (unit, API, UI, perf), or a lighter subset.
-- **Chosen:** the backend unit tests, the API suite against a backend started inside the Jenkins
-  job, and the new demo tests. The UI and perf suites are left out.
-- **Why:** UI needs browsers and a Node build, and perf needs Java and JMeter. Both add a lot of
-  setup for few extra tests (32 UI, 4 perf).
-
-## D-005: Meaning of "suite" in test identity
-
-- **Date:** 2026-10-22
-- **Options considered:** the JUnit `testsuite` name, or the test layer.
-- **Chosen:** the test layer: `unit`, `api` or `demo`. Example identity:
-  `(api, tests.api.test_cart, test_update_quantity)`.
-- **Why:** pytest writes `pytest` as the suite name for every test, so that field tells tests
-  apart by nothing.
-
-## D-006: No automatic retries in Jenkins
-
-- **Date:** 2026-10-22
-- **Options considered:** one retry per failed test (as CrashCart's UI suite does), or none.
-- **Chosen:** no retries.
-- **Why:** each execution stays one clean result. Flakiness then shows up across builds, which is
-  exactly what the metrics measure.
-
-## D-007: How Jenkins gets the CrashCart code
-
-- **Date:** 2026-10-22
-- **Options considered:** mount the local folder read-only, or clone from GitHub.
-- **Chosen:** clone the `noisefloor-demo` branch from GitHub.
-- **Why:** it's closer to a real CI setup. The branch was pushed on 2026-10-22.
-
-## D-008: Noisefloor's role next to CrashCart
-
-- **Date:** 2026-10-22
-- **Context:** CrashCart's own results pipeline already reports same-commit conflicts and a 30-day
-  flip rate.
-- **Chosen:** Noisefloor is the data-engineering layer CrashCart doesn't have: Jenkins as the
-  source, incremental loading, a star schema, transformations, data-quality checks and per-test
-  runtime regression. The README will explain how it relates to CrashCart's flaky-test page.
-- **Why:** it avoids repeating CrashCart's work and keeps the focus on data-engineering skills.
-
-## D-009: Spreading build history over 30 days
-
-- **Date:** 2026-10-22
-- **Options considered:** running builds on a schedule for several weeks, or a labelled time
-  offset.
-- **Chosen:** a clearly labelled time offset, stored in its own column next to the real build
-  time. The real timestamp is never overwritten.
-- **Why:** every build we trigger gets today's date, so a 30-day window would otherwise hold
-  only one day. The offset shows the window working in one sitting, and anyone can see what
-  was simulated.
-
-## D-010: Warehouse
-
-- **Date:** 2026-10-22
-- **Options considered:** DuckDB, PostgreSQL in Docker, SQLite, ClickHouse in Docker. Ruled out
-  MotherDuck and the Snowflake trial (both can bill) and the BigQuery sandbox (cloud-only, and
-  tables expire).
-- **Chosen:** DuckDB.
-- **Why:** it's a single file with no server, fast window functions for flip rate and rolling
-  medians, and a mature dbt adapter. The data size (thousands of rows) doesn't need a server.
-
-## D-011: Transformations
-
-- **Date:** 2026-10-22
-- **Options considered:** dbt-core, or plain SQL and Python.
-- **Chosen:** dbt-core with the dbt-duckdb adapter.
-- **Why:** it gives tests, docs and dependency ordering out of the box, and it's the industry
-  standard. dbt Cloud (the paid product) is not used.
-
-## D-012: Running the pipeline
-
-- **Date:** 2026-10-22
-- **Options considered:** a Python command-line tool, a Makefile, a local Dagster or Prefect.
-- **Chosen:** a small Python command-line tool (for example `noisefloor run`).
-- **Why:** it works the same on Windows, macOS and Linux. Make isn't built into Windows, and an
-  orchestrator is heavy for this size.
-
-## D-013: Runtime regression rule
-
-- **Date:** 2026-10-22
-- **Options considered:** rolling median and ratio, z-score, percentile.
-- **Chosen:** rolling median and ratio. A run is a regression when its duration is more than
-  1.5x the test's median over its previous 20 runs **and** at least 0.5 s longer.
-- **Why:** the median isn't thrown off by one odd run. The 0.5 s floor stops tiny tests (say
-  0.01 s to 0.02 s) from being flagged over noise.
-
-## D-014: Report hosting
-
-- **Date:** 2026-10-22
-- **Options considered:** a static site on GitHub Pages, or Streamlit Community Cloud.
-- **Chosen:** a static site on GitHub Pages.
-- **Why:** it's free on a public repo and opens instantly with no account and no wake-up wait.
-
-## D-015: Python version
-
-- **Date:** 2026-10-22
-- **Chosen:** Python 3.14 everywhere (Noisefloor and the Jenkins build environment).
-- **Why:** it matches CrashCart. Open check: confirm dbt-core and dbt-duckdb install and run
-  on 3.14 before relying on them. If they don't, raise it rather than switching silently.
-- **Update 2026-10-22:** they don't. The dbt step uses Python 3.13 instead; see D-030.
-
-## D-016: Counting skipped and error results
-
-- **Date:** 2026-10-22
-- **Chosen:** `error` counts as a fail. `skipped` is stored but ignored by every metric.
-- **Example:** P, skip, F counts as one switch (P to F).
-- **Why:** an error is still a broken execution. A skip tells us nothing about pass or fail.
-
-## D-017: Which runs form a test's duration baseline
-
-- **Date:** 2026-10-22
-- **Chosen:** only passed runs count towards a test's normal duration.
-- **Why:** a test that crashes early looks artificially fast. That would pull the median down
-  and cause false regression alarms.
-
-## D-018: Demo test design
-
-- **Date:** 2026-10-22
-- **Chosen:** about 10 tests in `tests/noisefloor_demo/` on the `noisefloor-demo` branch. They're
-  skipped unless `NOISEFLOOR_DEMO=1`.
-  - About 6 flaky tests with realistic causes (timing race, order dependence, random data, a
-    slow fake service), each failing at a known rate.
-  - About 4 tests that become slower from a known commit onward. Each slowdown is a real,
-    small commit on the branch, for example "commit 5 makes `test_demo_search` slower".
-    (Updated 2026-10-22: first proposed as tied to the build number, then changed to commits
-    because real regressions come from code changes.)
-  - Randomness is seeded from the build number, so rebuilding gives the same results.
-  - An answer key, `expected.json`, lists what each demo test was designed to do.
-- **Why:** it gives a known right answer for checking every metric, while the real CrashCart
-  suites provide real data alongside.
-
-## D-019: Package manager and project layout
-
-- **Date:** 2026-10-22
-- **Options considered:** pip with venv, or uv.
-- **Chosen:** uv, with Python code in `src/noisefloor/`, tests in `tests/` and the dbt project in
-  `transform/`.
-- **Why:** uv is free, fast, can install Python 3.14 itself, and locks exact versions, so setup
-  can be repeated exactly. The `src/` layout stops tests from importing code by accident
-  without installing it.
-
-## D-020: Container tool
-
-- **Date:** 2026-10-22
-- **Options considered:** Docker Desktop, Rancher Desktop, Docker Engine inside WSL.
-- **Chosen:** Docker Desktop (with WSL 2).
-- **Why:** it's the easiest install and the tool most guides assume. It's free for personal
-  use with no card. A paid licence applies only to companies over 250 staff or $10M revenue.
-
-## D-021: Jenkins setup
-
-- **Date:** 2026-10-22
-- **Chosen:**
-  - Jenkins `2.580.1-lts-jdk21` and uv `0.12.23`, both pinned. Python 3.14 is installed in the
-    image by uv.
-  - Everything is configured from files (Configuration as Code plus a Job DSL job), with no
-    setup wizard.
-  - One executor. The port is bound to `127.0.0.1` only. The admin password comes from `.env`.
-  - Each suite's JUnit file gets its own suite name (`unit`, `api`, `demo`) through pytest's
-    `junit_suite_name` option. This puts the D-005 suite straight into the Jenkins test report.
-- **Why:** a fresh start is fully repeatable from the README. One executor avoids port clashes
-  and keeps timings comparable.
-- **Plugin versions:** pinned after the first successful start. `plugins.lock.txt` lists all 69
-  plugins with exact versions, and the image installs from it.
-
-## D-022: Noisefloor repository
-
-- **Date:** 2026-10-22
-- **Chosen:** a public GitHub repository, `kartikey3112/noise-floor`, with `main` as the default
-  branch.
-- **Why:** on a free account, GitHub Pages only hosts sites from public repositories, and
-  reviewers need to be able to read the code.
-
-## D-023: Downloads during Docker builds
-
-- **Date:** 2026-10-22
-- **Context:** the command sandbox on the development machine blocked the image build from
-  reaching `ghcr.io`.
-- **Chosen:** run Docker build and start commands outside the sandbox, one approved command at
-  a time.
-- **Why:** the build has to download from several registries (Docker Hub, ghcr.io, Python
-  builds, Jenkins plugins).
-
-## D-024: Build history plan
-
-- **Date:** 2026-10-22
-- **Chosen:**
-  - 15 builds on the base demo commit (`f8da8bd`), then 8 builds on each of the 4 slowdown
-    commits, in commit order. 47 builds in total.
-  - Run by `scripts/generate_history.py`, which uses only the standard library and can be
-    re-run safely (it only starts the builds that are missing).
-  - The first test build (#1, run on the last commit) was deleted, so history starts at build
-    #2 and follows commit order.
-- **Why:** 15 builds give every test a settled normal duration before the first slowdown. 8
-  re-runs per commit give the flaky tests room to disagree on the same commit.
-
-## D-025: Jenkins API token
-
-- **Date:** 2026-10-22
-- **Chosen:** scripts and ingestion authenticate with a Jenkins API token (`JENKINS_API_TOKEN`
-  in `.env`), not the admin password.
-- **Why:** a token can be revoked on its own, and it needs no CSRF crumb for POST requests.
-
-## D-026: Raw landing layer
-
-- **Date:** 2026-10-22
-- **Options considered:** raw JSON files plus DuckDB, or DuckDB only.
-- **Chosen:** both.
-  - Each build and its test report are saved unchanged under `data/raw/jenkins/<job>/`
-    (git-ignored), then loaded into DuckDB (`data/noisefloor.duckdb`), schema `raw`.
-  - Tables: `raw.jenkins_builds` (one row per build), `raw.jenkins_test_cases` (one row per
-    test execution), `raw.ingestion_runs` (one row per run).
-  - `noisefloor reload-raw` rebuilds the raw tables from the files without asking Jenkins.
-  - The raw tables declare no primary keys. Uniqueness is checked by the data-quality tests
-    in Phase 5.
-- **Why:** it's the standard landing-zone pattern. A bad load can be replayed from disk, and the
-  raw layer accepts whatever the source sends.
-
-## D-027: Incremental and idempotent ingestion
-
-- **Date:** 2026-10-22
-- **Chosen:**
-  - Watermark = the highest build number already loaded. Only newer, finished builds are
-    fetched, and loading stops at the first build still running.
-  - Each build is written in one transaction: delete its rows, insert them again.
-- **Example:** run 1 loaded builds #2 to #9. Run 2, straight after, loaded 0 builds and waited on
-  #10, which was still running. Row counts didn't change.
-- **Why:** without the stop rule, a running build could be skipped forever once a later build
-  moved the watermark past it.
-
-## D-028: What the raw layer keeps
-
-- **Date:** 2026-10-22
-- **Chosen:** values exactly as Jenkins reports them: real UTC start times and Jenkins' own test
-  statuses (PASSED, FAILED, SKIPPED, and also FIXED and REGRESSED if they appear). The
-  status mapping (D-016) and the 30-day time offset (D-009) are applied in the Phase 3 models,
-  as separate, labelled columns.
-- **Why:** the raw layer stays an exact, checkable copy of the source.
-
-## D-029: Python tooling on the development machine
-
-- **Date:** 2026-10-22
-- **Chosen:** uv 0.12.23 installed for the current user with the system Python. Package
-  downloads run outside the command sandbox, one approved command at a time, the same as
-  D-023. Versions are locked in `uv.lock`.
-- **Why:** uv inside the project's own environment would be removed by `uv sync`.
-
-## D-030: Python version for dbt
-
-- **Date:** 2026-10-22
-- **Tested:**
-  - dbt-core 1.11 + dbt-duckdb 1.11 on Python 3.14 fails at start-up (in its `mashumaro`
-    dependency).
-  - dbt-core 1.12 on 3.14 fails with a missing `metricflow` module.
-  - dbt-core 1.11 on Python 3.13 works.
-- **Options considered:** (a) Python 3.13 only for the dbt step, (b) the whole project on 3.13,
-  (c) drop dbt for plain SQL, (d) keep trying dbt 1.12 on 3.14.
-- **Chosen:** (a). `transform/` has its own locked uv environment on Python 3.13. Ingestion stays
-  on 3.14. Both pin DuckDB 1.5.6, so they read the same database file.
-- **Why:** dbt runs on an officially supported combination, and the rest of the project keeps
-  3.14.
-
-## D-031: Star schema
-
-- **Date:** 2026-10-22
-- **Chosen:**
-  - Fact `fct_test_executions`: one row per test execution (one test case in one build), with
-    keys to `dim_test`, `dim_build`, `dim_commit` and `dim_date`.
-  - The fact holds `outcome`, `jenkins_status`, `duration_s`, `error_message`, simulated and
-    real times, and `test_run_seq`.
-  - `commit_key` sits on the fact directly, even though the build implies it, because the
-    flaky rule is "same test, same commit".
-  - Layers: staging (views), intermediate (views), marts (tables).
-- **Why:** the grain matches the question being asked ("what happened to this test in this
-  build"), and every metric is an aggregate over it.
-
-## D-032: Simulated time formula
-
-- **Date:** 2026-10-22
-- **Chosen:** the newest build keeps its real start time, and each earlier build is placed 18
-  hours before the next one (dbt var `simulated_build_spacing_hours`). The real time stays in
-  `*_real_utc` columns.
-- **Note:** simulated times are anchored to the newest build, so they shift whenever a new build
-  arrives. Metrics are always recomputed in full, so results stay consistent for a given set of
-  builds.
-- **Why:** the ~46 builds span about 34 days, so the 30-day window visibly leaves the oldest
-  builds out.
-
-## D-033: Demo answer key as dbt seeds
-
-- **Date:** 2026-10-22
-- **Chosen:** `scripts/export_demo_seeds.py` copies `expected.json` and the demo commit subjects
-  from CrashCart's `noisefloor-demo` branch into `transform/seeds/` (`demo_expected_tests.csv`,
-  `demo_commits.csv`). The CSVs are committed.
-- **Why:** Jenkins knows neither which tests were designed to be flaky or slow, nor the commit
-  messages. Committing the seeds means a fresh clone needs no CrashCart.
-
-## D-034: Surrogate keys
-
-- **Date:** 2026-10-22
-- **Chosen:** keys are the MD5 hash of the natural key columns joined with `|` (macro
-  `surrogate_key`).
-- **Why:** the same input always gives the same key, so full rebuilds never renumber rows, and
-  no sequence state is needed.
-
-## D-035: Metric details
-
-- **Date:** 2026-10-22
-- **Simulated time:** left as designed in D-032 (anchored to the newest build). The history is
-  complete, so it won't shift unless new builds are added.
-- **Edge cases, filled in while building (open to change):**
-  - **Flip rate:** pairs of consecutive non-skipped executions. A pair counts in a day's
-    window only if both of its executions fall in the 30 days ending at the end of that day.
-    The test-level "current" value is the window ending on the last day with builds.
-  - **Regression:** needs at least 5 earlier passed runs. Only passed runs are checked, and
-    only passed runs form the baseline (D-017).
-  - **Regression episodes:** consecutive flagged runs of one test form one episode. Its onset
-    gives the commit where the slowdown started.
-- **Tests:** 7 dbt unit tests on hand-made data with known answers, one or more per metric. With
-  a deliberately wrong setting (floor 0.3 s instead of 0.5 s), the expected unit test fails.
-- **Result on the full history:** all 11 demo tests detected as designed. 0 of the 268 real
-  tests are flaky. Each slowdown is found on exactly its designed commit.
-
-## D-036: Runtime spikes versus sustained regressions
-
-- **Date:** 2026-10-22
-- **Context:** 23 regression episodes in real API tests were mostly single slow runs. The API
-  tests run 4 at a time, so their timings are noisy.
-- **Options considered:** (1) keep the rule and label episodes by length, (2) count only
-  sustained slowdowns (change D-013), (3) raise the thresholds.
-- **Chosen:** (1).
-  - Each episode gets `episode_kind`: `sustained` if it has 3 or more flagged runs in a row
-    (dbt var `regression_sustained_min_runs`), otherwise `spike`.
-  - `has_regressed` and the answer-key check count sustained episodes only.
-- **Result:** API has 20 spikes and 3 sustained episodes (3 to 4 runs each). Demo has 4
-  sustained episodes (8 to 11 runs) and no spikes.
-- **Why:** it shows everything honestly, and doesn't tune the rule to fit this dataset.
-
-## D-037: Data-quality checks
-
-- **Date:** 2026-10-22
-- **Chosen:** dbt tests, run by every `dbt build`:
-  - **Uniqueness:** raw builds `(job, build)`, raw test cases `(job, build, case_index)`, the
-    fact grain `(test_key, build_key)`, and every model's key.
-  - **Nulls:** build number, start time and commit SHA. Suite, class and test name. Duration
-    and outcome.
-  - **Referential integrity:** every raw test case belongs to a raw build (a two-column key).
-    Every fact row links to all four dimensions.
-  - **Allowed values:** build results, Jenkins statuses, outcomes, episode kinds.
-  - **Rules:** durations aren't negative, and every SUCCESS or UNSTABLE build has test
-    results. A suite losing more than 10% of its results from one build to the next only
-    warns, because tests can be removed on purpose.
-  - **Freshness:** `dbt source freshness` on `raw.jenkins_builds` and `raw.ingestion_runs`.
-    It warns after 1 day without ingestion and errors after 7.
-- **Proof:** on a copy of the warehouse with a duplicated build, a missing commit SHA and one
-  build's unit results deleted, the matching checks failed, failed and warned.
-- **Why:** it covers the four kinds asked for (nulls, uniqueness, referential integrity,
-  freshness), plus the failure modes most likely in this pipeline.
-
-## D-038: Running the pipeline end to end
-
-- **Date:** 2026-10-22
-- **Chosen:** `noisefloor run` runs ingest, then `dbt build` (models, unit tests and every
-  data-quality check), then `dbt source freshness`. It stops at the first failing step and
-  exits with its code. dbt is called from its own environment (`transform/.venv`).
-  `noisefloor transform` runs only the dbt step.
-- **Scheduling (optional, free):** Windows Task Scheduler or cron can call `noisefloor run`.
-  GitHub Actions can't reach the local Jenkins (D-014 context), so it isn't used for the
-  pipeline.
-- **Why:** one command, the same on every OS. A non-zero exit code makes it easy to schedule
-  or wrap.
-
-## D-039: The report
-
-- **Date:** 2026-10-22
-- **Chosen:**
-  - One static page, written by `noisefloor report` (also step 4 of `noisefloor run`) into
-    `site/`, with every number embedded as JSON from the metric tables. No number is typed by
-    hand.
-  - **Sections:** summary tiles, flaky tests with their 30-day flip rate and a trend chart,
-    runtime regressions (sustained first, spikes listed separately) with a duration chart,
-    and the answer-key scorecard.
-  - **Charts:** Chart.js 4.5.1 from jsDelivr, pinned with an integrity hash, as in CrashCart.
-    Every chart has a table with the same numbers.
-  - **Colours:** colours follow the test in a fixed order, checked with a colour-vision
-    validator in light and dark mode. Three light-mode colours are below 3:1 contrast, which
-    the tables cover. Light and dark themes follow the system setting.
-  - **Flip-rate chart:** skips days whose window holds fewer than 10 pairs of runs, because
-    one flip in a single pair would read as 100%. The table still lists every day.
-  - **Publishing:** `site/` is committed. `.github/workflows/pages.yml` publishes it to
-    GitHub Pages on pushes that change it. One manual step: Settings > Pages > Source:
-    GitHub Actions.
-- **Why:** it's free, opens with one click, needs no server, and every number on it can be
-  traced to a query.
-- **Published 2026-10-22** at https://kartikey3112.github.io/noise-floor/ after Pages was set
-  to "GitHub Actions". The first push-triggered run failed only because Pages wasn't enabled
-  yet. The manual re-run succeeded.
-
-## D-040: README as a portfolio piece
-
-- **Date:** 2026-10-22
-- **Chosen:**
-  - The README's results section sits between two marker comments and is rewritten by
-    `noisefloor report` from the same data as the site, so no result in it is typed by hand.
-  - **Sections:** why, the metrics with examples, results, architecture (Mermaid), data model,
-    quality, how to run it, repository map, honest limits.
-  - A screenshot of the report (`docs/images/report-overview.png`) heads the page.
-- **Why:** the quality bar asks for every README number to be reproducible from the pipeline.
-  Generating the section is the only way that stays true after a re-run.
-- **Check:** every report query has a complete sort order. Rebuilding every model and then the
-  report gives byte-identical `site/index.html` and `README.md`.
-
-## D-041: CI on GitHub Actions
-
-- **Date:** 2026-10-22
-- **Chosen:** `.github/workflows/ci.yml` runs on every push to `main`, on pull requests, and
-  by hand. It installs both environments from their lock files (`uv sync --locked`), runs
-  ruff, runs pytest, and runs `dbt build` on an empty warehouse. That still runs every model,
-  every metric unit test and every data-quality check. Freshness is left out, because an empty
-  warehouse is never fresh. Free on a public repository.
-- **Why:** GitHub can't reach the local Jenkins (D-038), but everything except ingestion can
-  still be checked on every change.
-
-## D-042: Link from CrashCart to Noisefloor
-
-- **Date:** 2026-10-22
-- **Chosen:** a short section in CrashCart's `main` README pointing to Noisefloor and its live
-  report. It's a docs-only change, which CrashCart's CI ignores (`paths-ignore: "**.md"`).
-- **Why:** the two portfolio projects point at each other.
+## ADR-001: Test data: CrashCart plus switchable demo tests
+
+**Status:** accepted
+
+**Context.** Flaky tests are rare in a healthy suite, and there's no way to check a detector
+without known right answers. Company data was off the table.
+
+**Decision.** Use my own CrashCart project (real backend unit and API tests with JUnit output),
+plus a set of demo tests that are flaky or slow *on purpose*:
+
+- They live on a separate branch, `noisefloor-demo`, in `tests/noisefloor_demo/`, and are
+  skipped unless `NOISEFLOOR_DEMO=1`. CrashCart's own CI runs only on `main` and never sets the
+  variable, so its results are unaffected.
+- The flaky tests fail for realistic reasons (a timing race, order dependence, random data, a
+  slow dependency, a time-zone slip), each at a known rate.
+- The slow tests get slower at specific, real commits ("load order items with one query per
+  order"), because real regressions come from code changes.
+- Randomness is seeded from the Jenkins build number, so a rebuilt history gives the same
+  outcomes.
+- `expected.json` is the answer key.
+
+**Alternatives.**
+- A well-known open-source project: real, but rarely flaky, and with no answer key.
+- A project from a flaky-test research dataset: real flakiness, but often 1 failure in 50 or
+  more runs, and no answer key for slowdowns.
+- A separate demo app: full control, but entirely synthetic.
+
+**Consequences.** Detection can be scored ("11 of 11 detected as designed"), next to real tests
+that should come out clean. The demo tests are labelled as synthetic everywhere they appear.
+CrashCart already has a small flaky-test page of its own, so Noisefloor's focus is the data
+engineering around it: ingestion, modelling, quality checks and runtime regressions.
+
+## ADR-002: Test identity and what Jenkins runs
+
+**Status:** accepted
+
+**Decision.**
+- A test is `(suite, classname, test_name)`, and **suite** means the test layer: `unit`, `api` or
+  `demo`. pytest names every JUnit suite `pytest`, so the Jenkinsfile sets
+  `-o junit_suite_name=<layer>` for each layer. The identity then comes straight from Jenkins'
+  test report. Example: `(api, tests.api.test_cart, test_update_quantity)`.
+- Jenkins runs the unit tests, the API tests against a backend it starts itself, and the demo
+  tests. CrashCart's UI tests (browsers, Node) and perf tests (Java, JMeter) are left out: a lot
+  of setup for few extra tests.
+- **No automatic retries.** A retry turns one flaky execution into a "pass". Without retries,
+  every execution is recorded once, and flakiness shows up across builds, which is what the
+  metrics measure.
+
+## ADR-003: Reproducible Jenkins and build history
+
+**Status:** accepted
+
+**Decision.**
+- Jenkins LTS in Docker, configured entirely from files: Configuration as Code for the admin
+  user and settings, Job DSL for the job, and the Jenkinsfile in this repo. No setup wizard,
+  no clicking.
+- Pinned versions: Jenkins `2.580.1-lts-jdk21`, uv `0.12.23` (which installs Python 3.14 in the
+  image), and all 69 plugins in `plugins.lock.txt`.
+- One executor: every build starts its own backend on port 8000, and builds running side by side
+  would also make timings noisier.
+- Scripts and ingestion use a Jenkins API token from `.env`, never the admin password.
+- `scripts/generate_history.py` builds the 5 demo commits in order: 15 builds on the base commit,
+  then 8 on each slowdown commit. It can be re-run safely and only starts the builds that are
+  missing.
+
+**Why those numbers.** 15 builds give every test a settled normal duration before the first
+slowdown. 8 runs per commit give a flaky test room to both pass and fail on the same commit.
+
+## ADR-004: DuckDB as the warehouse
+
+**Status:** accepted
+
+**Alternatives.**
+- PostgreSQL in Docker: production-like, but another server to run, and slower for analytics.
+- SQLite: no window-function speed, and a weaker dbt adapter.
+- ClickHouse: built for far more data than this.
+- MotherDuck, the Snowflake trial and the BigQuery sandbox were ruled out: they can bill, or
+  they run in the cloud rather than locally.
+
+**Decision.** DuckDB, as one file (`data/noisefloor.duckdb`).
+
+**Why.** The data is small (about 13,000 executions) and the work is analytical: rolling
+windows, medians, lags. DuckDB does that fast, with zero setup, and has a mature dbt adapter.
+
+## ADR-005: dbt for transformations, on its own Python version
+
+**Status:** accepted
+
+**Decision.** dbt-core with dbt-duckdb, in its own uv environment (`transform/`) on **Python
+3.13**, while the rest of the project uses 3.14. Both environments pin DuckDB 1.5.6, so they
+read the same file.
+
+**Context.** The project targets Python 3.14, to match CrashCart. I tested dbt before relying
+on it:
+
+| Combination | Result |
+|---|---|
+| dbt-core 1.11 + dbt-duckdb 1.11 on Python 3.14 | fails at start-up, in its `mashumaro` dependency |
+| dbt-core 1.12 on 3.14 | starts, then fails on a missing `metricflow` module |
+| dbt-core 1.11 on Python 3.13 | works |
+
+**Alternatives.** The whole project on 3.13 (one environment, but out of step with CrashCart).
+Plain SQL run from Python (3.14 everywhere, but no dbt tests, docs or ordering). Pinning dbt 1.12's
+dependencies until it works on 3.14 (unsupported, and fragile).
+
+**Consequences.** Two lock files to maintain. The pipeline calls dbt as a separate program from
+`transform/.venv`. When dbt supports 3.14, the split can be removed.
+
+## ADR-006: A raw landing layer that keeps the source as is
+
+**Status:** accepted
+
+**Decision.**
+- Every build's API response and its test report are saved **unchanged** as JSON under
+  `data/raw/jenkins/<job>/`, then loaded into DuckDB's `raw` schema:
+  - `jenkins_builds`: one row per build
+  - `jenkins_test_cases`: one row per test execution
+  - `ingestion_runs`: one row per ingestion run
+- The raw layer keeps Jenkins' own values: real UTC times, and statuses such as `FIXED` and
+  `REGRESSED`. Cleaning and the simulated time happen in the dbt models, as separate columns.
+- The raw tables declare **no primary keys**. A raw layer should accept what the source sends.
+  Uniqueness is checked by the data-quality tests instead (ADR-012).
+
+**Consequences.** `noisefloor reload-raw` rebuilds the raw tables from disk without Jenkins.
+A bad load can be replayed, and the raw layer is an exact, checkable copy of the source.
+
+## ADR-007: Incremental, idempotent ingestion
+
+**Status:** accepted
+
+**Decision.**
+- **Incremental:** a watermark (the highest build number loaded) means only newer builds are
+  fetched. Loading **stops at the first build still running**: if build 10 is running and 11
+  has finished, loading 11 would move the watermark past 10, and 10 would never be loaded.
+- **Idempotent:** each build is written in one transaction, deleting its rows and inserting
+  them again. Running ingestion twice changes nothing the second time.
+
+**Evidence.** Against the real Jenkins, run 1 loaded builds #2 to #9. Run 2, straight after,
+loaded nothing and reported #10 as still running. Row counts were unchanged. Unit tests cover
+the same cases against a fake Jenkins.
+
+## ADR-008: Star schema at test-execution grain
+
+**Status:** accepted
+
+**Decision.**
+- **Fact `fct_test_executions`:** one row per test execution (one test case in one build).
+  It holds the outcome, Jenkins status, duration, error message, real and simulated times, and
+  `test_run_seq` (the test's 1st, 2nd… execution in time order).
+- **Dimensions:** `dim_test`, `dim_build`, `dim_commit`, `dim_date`.
+- `commit_key` sits on the fact directly, although the build implies it. The flaky rule is
+  literally "same test, same commit", so that question takes one join instead of two.
+- **Keys** are MD5 hashes of the natural key columns. The same input always gives the same key,
+  so rebuilding from scratch never renumbers anything.
+- **Layers:** staging (views), intermediate (views), marts and metrics (tables). Each model's
+  SQL starts with its grain.
+
+**Why this grain.** Every metric is an aggregate over "what happened to this test in this
+build". A coarser grain (per test per day) would lose the same-commit comparison.
+
+## ADR-009: Simulated build times
+
+**Status:** accepted
+
+**Context.** All demo builds ran in one afternoon, so a 30-day window would contain everything
+and prove nothing.
+
+**Decision.** In the models, the newest build keeps its real start time, and each earlier build
+is placed 18 hours before the next (dbt var `simulated_build_spacing_hours`). The 47 builds then
+span about 34 days, so the oldest fall outside the 30-day window. Real times are kept next to
+them in `*_real_utc` columns, and the report says the timeline is simulated.
+
+**Consequences.** Simulated times shift if a new build arrives, because they're anchored to the
+newest one. Metrics are always recomputed in full, so results stay consistent for any given set
+of builds.
+
+## ADR-010: Metric definitions
+
+**Status:** accepted
+
+**Outcomes.** `PASSED`/`FIXED` → pass. `FAILED`/`REGRESSED` → fail (JUnit errors arrive as
+`FAILED`). `SKIPPED` → skip, stored but ignored by every metric.
+
+**Flaky (same-commit divergence).** The test both passed and failed on the same commit.
+
+**30-day flip rate.** Put the test's non-skipped executions in time order, pair each with the
+one before it, and count the pairs where the outcome switched. For each day, only pairs with
+both runs inside the 30 days ending that day count. Example: P, P, F, P gives 2 flips in 3
+pairs, 67%.
+
+**Runtime regression.** A passed run that takes more than **1.5×** the median of the test's
+previous **20** passed runs, **and** at least **0.5 s** longer, with at least 5 earlier passed
+runs to compare against.
+- The median, rather than the mean, isn't thrown off by one odd run.
+- The 0.5 s floor stops tiny tests from raising alarms (0.01 s → 0.40 s is 40×, but noise).
+- **Only passed runs form the baseline.** A test that crashes early looks fast and would drag
+  the median down, so normal runs would then look like regressions.
+
+**Alternatives for the regression rule.** A z-score (statistically standard, but easily skewed
+by outliers). A percentile threshold (easy to explain, but needs more history).
+
+**Evidence.** Each metric has dbt unit tests on small hand-made data with known answers. With a
+deliberately wrong threshold (a 0.3 s floor), the matching unit test fails.
+
+## ADR-011: Runtime spikes versus sustained regressions
+
+**Status:** accepted
+
+**Context.** On the full history, the rule flagged 23 episodes in real API tests. Most were a
+single slow run: the API tests run 4 at a time on one laptop, so their timings are noisy.
+
+**Alternatives.**
+1. Keep the rule, and label episodes by how long they last.
+2. Count only slowdowns that last several runs (a change to the rule itself).
+3. Raise the thresholds (simple, but it also hides modest real slowdowns).
+
+**Decision.** Option 1. Back-to-back flagged runs form one *episode*. An episode with 3 or more
+flagged runs is **sustained**, and a shorter one is a **spike**. "Has regressed" counts sustained
+episodes only, and the report lists spikes separately.
+
+**Why.** It shows everything honestly and doesn't tune the rule to fit one dataset. The demo
+slowdowns last 8 to 11 runs, so they're far from the boundary.
+
+**Consequences.** The three real API tests with sustained episodes all started at the same build,
+on the same commit as the fast builds before it. So the cause was the machine, not the code,
+which the star schema makes quick to check.
+
+## ADR-012: Data-quality checks
+
+**Status:** accepted
+
+**Decision.** dbt tests, run on every `dbt build`:
+
+- **Uniqueness** of every grain, in the raw tables and the models, including at most one
+  execution per test per build (true because there are no retries).
+- **Nulls** where a missing value would break a metric: commit SHA, start time, test identity,
+  duration, outcome.
+- **Referential integrity:** every raw test case belongs to a raw build (a two-column key), and
+  every fact row links to all four dimensions.
+- **Allowed values** for build results, statuses, outcomes and episode kinds.
+- **Rules:** no negative durations, and every completed build has test results. A suite that
+  loses more than 10% of its results from one build to the next only **warns**, because tests
+  can be removed on purpose.
+- **Freshness:** a warning after 1 day without ingestion, an error after 7.
+
+**Evidence.** On a deliberately broken copy of the warehouse (a duplicated build, a missing
+commit SHA, one build's unit results deleted), the matching checks failed, failed and warned.
+
+## ADR-013: Orchestration and CI
+
+**Status:** accepted
+
+**Decision.**
+- `noisefloor run` runs ingest, then `dbt build` (models, unit tests and every quality check),
+  then freshness, then the report. It stops at the first failing step and exits with its code.
+  A scheduler such as cron or Windows Task Scheduler can call it.
+- CI on GitHub Actions runs lint, the Python tests and a full `dbt build` on an **empty**
+  warehouse. GitHub can't reach the local Jenkins, but every model, unit test and quality
+  check still runs.
+
+**Alternatives.** A Makefile (not built into Windows). Dagster or Prefect running locally
+(heavy for one linear pipeline).
+
+## ADR-014: A static report and a generated README
+
+**Status:** accepted
+
+**Decision.**
+- `noisefloor report` writes one static page into `site/`, with every number embedded as JSON
+  from the metric tables. GitHub Actions publishes `site/` to GitHub Pages.
+- The README's results section sits between two marker comments and is rewritten by the same
+  command, so no result in it is typed by hand.
+- Every report query has a complete sort order: rebuilding everything gives byte-identical
+  output.
+- Charts use Chart.js, pinned with an integrity hash. Each chart has a table with the same
+  numbers, and the colours were checked for colour-vision deficiency in light and dark mode.
+- The flip-rate chart skips days whose window holds fewer than 10 pairs of runs. One flip in a
+  single pair would read as 100%; the table still lists every day.
+
+**Alternatives.** Streamlit Community Cloud: interactive, but the app sleeps when idle, so
+visitors wait for it to wake.
+
+## ADR-015: Free tools only
+
+**Status:** accepted
+
+**Decision.** Everything is free and open source, and runs locally: Docker, Jenkins, Python, uv,
+DuckDB, dbt-core and Chart.js. The only hosted services are GitHub's free tier for a public
+repository: the repo itself, Actions and Pages. Nothing asks for payment details. dbt Cloud,
+MotherDuck and cloud warehouses were avoided for that reason.

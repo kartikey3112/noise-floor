@@ -1,5 +1,5 @@
 {#
-  A stable key: the MD5 hash of the natural key columns joined with '|' (decision D-034).
+  A stable key: the MD5 hash of the natural key columns joined with '|' (ADR-008).
   The same input always gives the same key, so a full rebuild never renumbers anything.
   Example: surrogate_key(['suite_name', 'class_name', 'test_name'])
 #}

@@ -2,7 +2,7 @@
 --
 -- Baseline: the median duration of the test's previous N passed runs (var
 -- regression_baseline_runs). Only passed runs count: a test that fails early looks fast and
--- would drag the baseline down (decision D-017).
+-- would drag the baseline down (ADR-010).
 -- Regression: more than ratio x the baseline AND at least min_increase_s longer, with at least
 -- min_baseline_runs earlier passed runs. Example: baseline 0.20 s, this run 1.24 s
 -- -> 6.2x and +1.04 s, so it's a regression. A 0.01 s test taking 0.40 s is 40x but only

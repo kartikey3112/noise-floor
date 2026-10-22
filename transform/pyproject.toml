@@ -1,5 +1,5 @@
 # The dbt environment, kept separate from the main package on purpose: dbt-core 1.11 and
-# dbt-duckdb don't run on Python 3.14 yet, so this step uses 3.13 (decision D-030).
+# dbt-duckdb don't run on Python 3.14 yet, so this step uses 3.13 (ADR-005).
 # Run dbt with:  uv run --project transform dbt build --project-dir transform
 [project]
 name = "noisefloor-transform"

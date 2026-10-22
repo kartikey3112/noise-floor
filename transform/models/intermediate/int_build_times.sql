@@ -1,6 +1,6 @@
 -- Grain: one row per Jenkins build (job_name, build_number).
 --
--- Simulated build times (decisions D-009 and D-032). Every demo build ran on one day, so a
+-- Simulated build times (ADR-009). Every demo build ran on one day, so a
 -- 30-day window would hold everything. To show the window working, each build gets a
 -- simulated start time: the newest build keeps its real time, and every earlier build is placed
 -- a fixed number of hours (var simulated_build_spacing_hours) before the next one.

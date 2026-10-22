@@ -4,7 +4,7 @@
     2. transform    dbt build: seeds, models, unit tests and data-quality checks
     3. freshness    dbt source freshness: has ingestion loaded anything recently?
 
-dbt lives in its own Python 3.13 environment (decision D-030), so it's run as a separate
+dbt lives in its own Python 3.13 environment (ADR-005), so it's run as a separate
 program: the dbt executable inside transform/.venv, created by `uv sync --project transform`.
 """
 

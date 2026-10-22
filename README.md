@@ -92,7 +92,7 @@ so the metrics can be checked against known right answers.
 - None of the real CrashCart tests is flaky. They're stable, which is the right answer too.
 - The spikes are real API tests that were slow once. The API tests run 4 at a time on one
   laptop, so their timings are noisy. Rather than tune the rule until they disappear, the
-  report labels them separately ([D-036](docs/decisions.md#d-036-runtime-spikes-versus-sustained-regressions)).
+  report labels them separately ([ADR-011](docs/decisions.md#adr-011-runtime-spikes-versus-sustained-regressions)).
 - The three real API tests listed as sustained regressions all started at the same build (#7),
   on the same commit as the fast builds just before it. The code didn't change, so the cause
   was the machine being busy for a few builds, not CrashCart. The star schema makes that quick

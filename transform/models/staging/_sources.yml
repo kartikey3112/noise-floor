@@ -1,6 +1,6 @@
 version: 2
 
-# Data-quality checks on the raw layer (decision D-037). The raw tables declare no keys (D-026),
+# Data-quality checks on the raw layer (ADR-012). The raw tables declare no keys (ADR-006),
 # so uniqueness, nulls and links between tables are checked here instead.
 sources:
   - name: raw

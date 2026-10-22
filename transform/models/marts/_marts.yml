@@ -6,7 +6,7 @@ models:
       Grain: one row per test execution, meaning one test case in one Jenkins build.
       The center of the star schema; joins to dim_test, dim_build, dim_commit and dim_date.
     data_tests:
-      # No retries (D-006), so a test runs at most once per build. A second row for the same
+      # No retries (ADR-002), so a test runs at most once per build. A second row for the same
       # test and build means duplicate test names, or a JUnit file loaded twice.
       - unique_combination:
           arguments: {columns: [test_key, build_key]}
